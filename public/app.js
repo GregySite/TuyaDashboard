@@ -36,7 +36,7 @@ function logout() {
     checkAuth();
 }
 
-// Wrapper pour fetch() injectant les secrets
+// Wrapper pour fetch() injectant les secrets Tuya dans les headers
 async function apiFetch(endpoint, options = {}) {
     if (!userCredentials) throw new Error("Non connecté");
     const headers = {
@@ -51,14 +51,18 @@ async function apiFetch(endpoint, options = {}) {
     return fetch(API_BASE + endpoint, { ...options, headers });
 }
 
-// --- LOGIQUE PRINCIPALE ---
+// --- LOGIQUE D'INTERFACE ---
 function switchTab(tab) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-    document.querySelectorAll('[id^="tab-"]').forEach(b => { b.classList.remove('tab-active'); b.classList.add('tab-inactive'); });
+    document.querySelectorAll('[id^="tab-"]').forEach(b => { 
+        b.classList.remove('tab-active'); 
+        b.classList.add('tab-inactive'); 
+    });
     
     document.getElementById(`content-${tab}`).classList.remove('hidden');
     const btn = document.getElementById(`tab-${tab}`);
-    btn.classList.remove('tab-inactive'); btn.classList.add('tab-active');
+    btn.classList.remove('tab-inactive'); 
+    btn.classList.add('tab-active');
     
     if (tab === 'manual') loadDevices();
     if (tab === 'shabbat') { loadShabbatTimes(); loadScheduledTasks(); loadDevicesForScheduling(); }
@@ -67,7 +71,7 @@ function switchTab(tab) {
 async function loadDevices() {
     const container = document.getElementById('devices-container');
     const loading = document.getElementById('loading');
-    const scrollPos = window.scrollY;
+    const scrollPos = window.scrollY; // Mémorise la position
     
     if (container.innerHTML === '') loading.classList.remove('hidden');
     
@@ -77,57 +81,110 @@ async function loadDevices() {
         
         if (data.success && data.result) {
             devices = data.result;
-            container.innerHTML = devices.length ? '' : '<div class="col-span-full text-center text-gray-500 py-10">Aucun appareil trouvé.</div>';
-            devices.forEach(d => container.appendChild(createDeviceCard(d)));
-            window.scrollTo(0, scrollPos);
-        } else {
-            if (data.code === 1004 || data.code === 1106) {
-                alert("Identifiants incorrects ou expirés !");
-                logout();
+            container.innerHTML = '';
+            if (devices.length === 0) {
+                container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-10">Aucun appareil trouvé.</div>';
+            } else {
+                devices.forEach(d => container.appendChild(createDeviceCard(d)));
             }
-            container.innerHTML = `<div class="col-span-full text-red-500 text-center py-10">Erreur API: ${data.msg || 'Inconnue'}</div>`;
+            window.scrollTo(0, scrollPos); // Restaure la position
+        } else {
+            container.innerHTML = `<div class="col-span-full text-red-500 text-center py-10 text-sm">Erreur: ${data.msg || 'Vérifiez vos identifiants'}</div>`;
         }
     } catch (e) {
-        container.innerHTML = '<div class="col-span-full text-red-500 text-center py-10">Erreur réseau.</div>';
+        container.innerHTML = '<div class="col-span-full text-red-500 text-center py-10 text-sm">Erreur réseau.</div>';
     } finally { loading.classList.add('hidden'); }
 }
 
 async function sendCommand(deviceId, code, value) {
     try {
-        await apiFetch(`/devices/${deviceId}/commands`, {
-            method: 'POST', body: JSON.stringify({ commands: [{ code, value }] })
+        const res = await apiFetch(`/devices/${deviceId}/commands`, {
+            method: 'POST', 
+            body: JSON.stringify({ commands: [{ code, value }] })
         });
-        setTimeout(loadDevices, 500);
+        const data = await res.json();
+        if (data.success) setTimeout(loadDevices, 500);
     } catch (e) { console.error(e); }
 }
 
+function setCountdown(deviceId) {
+    const seconds = parseInt(document.getElementById(`timer-${deviceId}`).value);
+    sendCommand(deviceId, 'countdown_1', seconds);
+}
+
+// --- LE MOTEUR DE GÉNÉRATION DES CARTES (MAX FEATURES) ---
 function createDeviceCard(device) {
     const card = document.createElement('div');
-    card.className = 'device-card bg-white rounded-xl p-5 shadow-lg flex flex-col justify-between';
+    card.className = 'device-card bg-white rounded-xl p-5 shadow-lg flex flex-col justify-between border-t-4 border-purple-500';
     
     const state = {};
     if (device.status) device.status.forEach(s => { state[s.code] = s.value; });
     
-    let html = `<div class="flex justify-between items-start mb-4">
-        <div><h3 class="font-bold text-lg text-gray-800">${device.name}</h3><p class="text-xs text-gray-400">${device.product_name}</p></div>
-        <div class="h-3 w-3 rounded-full ${device.online ? 'bg-green-500' : 'bg-red-500'} mt-1"></div>
-    </div><div class="space-y-3">`;
+    let icon = 'fa-plug'; let iconColor = 'text-gray-400';
+    if (device.category === 'wsdcg') { icon = 'fa-temperature-half'; iconColor = 'text-orange-500'; } 
+    else if (device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud')) {
+        icon = 'fa-fire-flame-simple'; iconColor = state.switch_1 ? 'text-red-500' : 'text-gray-400';
+    } else if (device.category === 'dj' || device.name.toLowerCase().includes('lumi')) {
+        icon = 'fa-lightbulb'; iconColor = (state.switch_1 || state.switch_led) ? 'text-yellow-400' : 'text-gray-400';
+    } else {
+        iconColor = state.switch_1 ? 'text-green-500' : 'text-gray-400';
+    }
 
+    let html = `
+    <div class="flex items-start justify-between mb-4">
+        <div class="flex-1">
+            <div class="flex items-center mb-1">
+                <i class="fas ${icon} text-2xl ${iconColor} mr-3"></i>
+                <h3 class="font-bold text-gray-800 leading-tight text-base">${device.name}</h3>
+            </div>
+            <p class="text-[10px] text-gray-400 ml-9 uppercase tracking-wider">${device.product_name || 'Tuya Device'}</p>
+        </div>
+        <div class="h-2 w-2 rounded-full ${device.online ? 'bg-green-500' : 'bg-red-500'} mt-1"></div>
+    </div>
+    <div class="space-y-3">`;
+
+    // Interrupteurs
     ['switch_1', 'switch_2', 'switch_led'].forEach(code => {
         if (code in state) {
-            html += `<div class="flex justify-between items-center bg-gray-50 p-2 rounded">
-                <span class="text-sm font-semibold">Alimentation</span>
-                <label class="switch"><input type="checkbox" ${state[code] ? 'checked' : ''} onchange="sendCommand('${device.id}', '${code}', this.checked)" ${!device.online?'disabled':''}><span class="slider"></span></label>
+            html += `<div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
+                <span class="text-xs font-bold text-gray-600">Alimentation</span>
+                <label class="switch"><input type="checkbox" ${state[code] ? 'checked' : ''} onchange="sendCommand('${device.id}', '${code}', this.checked)" ${!device.online ? 'disabled' : ''}><span class="slider"></span></label>
             </div>`;
         }
     });
 
-    if ('cur_power' in state) {
-        html += `<div class="flex justify-between bg-gray-800 text-white p-2 rounded"><span class="text-yellow-400"><i class="fas fa-bolt mr-2"></i>Watts</span><span class="font-mono">${(state.cur_power/10).toFixed(1)} W</span></div>`;
-    }
+    // Température / Humidité
     if ('va_temperature' in state) {
-        html += `<div class="flex justify-between bg-orange-100 text-orange-800 p-2 rounded"><span class="font-bold"><i class="fas fa-temperature-half mr-2"></i>Temp</span><span class="font-bold">${(state.va_temperature/10).toFixed(1)}°C</span></div>`;
+        html += `<div class="grid grid-cols-2 gap-2"><div class="bg-orange-50 text-orange-700 p-2 rounded text-center"><div class="text-xs">Temp</div><div class="font-bold">${(state.va_temperature/10).toFixed(1)}°C</div></div><div class="bg-blue-50 text-blue-700 p-2 rounded text-center"><div class="text-xs">Hum</div><div class="font-bold">${state.humidity_value}%</div></div></div>`;
     }
+
+    // Watts / Volts
+    if ('cur_power' in state) {
+        html += `<div class="flex justify-between items-center bg-gray-900 text-white p-2 rounded-lg text-xs font-mono"><span class="text-yellow-400 font-bold">${(state.cur_power/10).toFixed(1)} W</span><span>${(state.cur_voltage/10).toFixed(0)}V</span></div>`;
+    }
+
+    // Minuteur
+    if ('countdown_1' in state) {
+        html += `<div class="mt-2 pt-2 border-t border-gray-100">
+            <div class="flex gap-1">
+                <select id="timer-${device.id}" class="flex-1 bg-gray-100 text-[10px] rounded p-1 border-none">
+                    <option value="0">Désactiver</option>
+                    <option value="1800" ${state.countdown_1 === 1800 ? 'selected' : ''}>30m</option>
+                    <option value="3600" ${state.countdown_1 === 3600 ? 'selected' : ''}>1h</option>
+                </select>
+                <button onclick="setCountdown('${device.id}')" class="bg-purple-600 text-white px-2 py-1 rounded text-[10px] font-bold">OK</button>
+            </div>
+            ${state.countdown_1 > 0 ? `<p class="text-[9px] text-green-600 mt-1 font-bold">Fin dans ~${Math.round(state.countdown_1/60)} min</p>` : ''}
+        </div>`;
+    }
+
+    // Fonctions Inconnues (Modules gris)
+    const handled = ['switch_1', 'switch_2', 'switch_led', 'va_temperature', 'humidity_value', 'cur_power', 'cur_voltage', 'countdown_1', 'cur_current', 'add_ele', 'fault', 'voltage_coe', 'electric_coe', 'power_coe', 'electricity_coe'];
+    let extras = '';
+    for (const [k, v] of Object.entries(state)) {
+        if (!handled.includes(k)) extras += `<span class="bg-gray-100 text-[9px] px-1 rounded mr-1 mb-1">${k}:${v}</span>`;
+    }
+    if (extras) html += `<div class="flex flex-wrap mt-2 opacity-50">${extras}</div>`;
 
     html += `</div>`;
     card.innerHTML = html;
@@ -143,10 +200,9 @@ async function loadShabbatTimes() {
             const cd = new Date(data.candleLighting.date);
             const hd = new Date(data.havdalah.date);
             document.getElementById('shabbat-times').innerHTML = `
-                <div class="bg-white bg-opacity-20 p-4 rounded-lg"><h3><i class="fas fa-candle-holder mr-2"></i>Bougies</h3><p class="text-2xl font-bold">${cd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
-                <div class="bg-white bg-opacity-20 p-4 rounded-lg"><h3><i class="fas fa-star mr-2"></i>Havdalah</h3><p class="text-2xl font-bold">${hd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
+                <div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3>Bougies</h3><p class="text-2xl font-bold">${cd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
+                <div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3>Havdalah</h3><p class="text-2xl font-bold">${hd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
             `;
-            document.getElementById('task-time').value = new Date(cd.getTime() - 7200000).toISOString().slice(0,16);
         }
     } catch(e) {}
 }
@@ -154,7 +210,7 @@ async function loadShabbatTimes() {
 async function loadDevicesForScheduling() {
     const select = document.getElementById('task-device');
     if(devices.length === 0) await loadDevices();
-    select.innerHTML = '';
+    select.innerHTML = '<option value="">Choisir...</option>';
     devices.forEach(d => {
         const opt = document.createElement('option');
         opt.value = JSON.stringify({id: d.id, name: d.name});
@@ -172,8 +228,8 @@ async function loadScheduledTasks() {
         data.tasks.forEach(t => {
             const isPast = new Date(t.executeAt) < new Date();
             c.innerHTML += `<div class="bg-gray-50 p-3 rounded flex justify-between items-center mb-2 border-l-4 ${isPast?'border-gray-400':'border-purple-500'}">
-                <div><h4 class="font-bold">${t.name}</h4><p class="text-xs text-gray-500">${t.deviceName} - ${t.action} à ${new Date(t.executeAt).toLocaleString('fr-FR')}</p></div>
-                <button onclick="deleteTask('${t.id}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                <div class="text-sm"><h4 class="font-bold">${t.name}</h4><p class="text-[10px] text-gray-500">${t.deviceName} - ${t.action} à ${new Date(t.executeAt).toLocaleString('fr-FR')}</p></div>
+                <button onclick="deleteTask('${t.id}')" class="text-red-400"><i class="fas fa-trash"></i></button>
             </div>`;
         });
     } catch(e) {}
@@ -193,11 +249,12 @@ document.getElementById('task-form').addEventListener('submit', async (e) => {
             })
         });
         loadScheduledTasks();
-        alert("Tâche ajoutée !");
+        alert("Tâche programmée !");
     } catch(e) { alert("Erreur"); }
 });
 
 async function deleteTask(id) {
+    if(!confirm("Supprimer ?")) return;
     await apiFetch(`/scheduled-tasks/${id}`, { method: 'DELETE' });
     loadScheduledTasks();
 }
