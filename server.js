@@ -4,12 +4,11 @@ const crypto = require('crypto');
 const axios = require('axios');
 const cron = require('node-cron');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Augmente la limite à 10mb pour pouvoir uploader de belles images de plan
+// Augmente la limite pour autoriser l'upload de l'image du plan
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
@@ -19,26 +18,32 @@ let scheduledTasks = [];
 let cronJobs = [];
 const tokenCache = new Map();
 
-// --- SAUVEGARDE DU PLAN (Fichier JSON local) ---
-const configPath = path.join(__dirname, 'plan-config.json');
+// --- SAUVEGARDE DU PLAN (JSONBIN.IO) ---
+const JSONBIN_ID = process.env.JSONBIN_ID;
+const JSONBIN_KEY = process.env.JSONBIN_KEY;
 
-app.get('/api/plan-config', (req, res) => {
+app.get('/api/plan-config', async (req, res) => {
+    if(!JSONBIN_ID || !JSONBIN_KEY) return res.json({ image: null, positions: {} });
     try {
-        if (fs.existsSync(configPath)) {
-            res.json(JSON.parse(fs.readFileSync(configPath, 'utf8')));
-        } else {
-            res.json({ image: null, positions: {} });
-        }
+        const response = await axios.get(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}/latest`, {
+            headers: { 'X-Master-Key': JSONBIN_KEY }
+        });
+        res.json(response.data.record);
     } catch (e) {
+        console.error("Erreur lecture JSONBin", e.message);
         res.json({ image: null, positions: {} });
     }
 });
 
-app.post('/api/plan-config', (req, res) => {
+app.post('/api/plan-config', async (req, res) => {
+    if(!JSONBIN_ID || !JSONBIN_KEY) return res.json({ success: true, msg: "Pas de config JSONBin" });
     try {
-        fs.writeFileSync(configPath, JSON.stringify(req.body));
+        await axios.put(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}`, req.body, {
+            headers: { 'X-Master-Key': JSONBIN_KEY, 'Content-Type': 'application/json' }
+        });
         res.json({ success: true });
     } catch (e) {
+        console.error("Erreur écriture JSONBin", e.message);
         res.status(500).json({ success: false, error: e.message });
     }
 });
