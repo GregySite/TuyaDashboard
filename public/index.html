@@ -3,101 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tuya Smart Home Map</title>
+    <title>Tuya Shabbat Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); min-height: 100vh; color: white; }
-        
-        /* Styles pour les interrupteurs dans les modales */
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
         .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
         .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
         input:checked + .slider { background-color: #4ade80; }
         input:checked + .slider:before { transform: translateX(22px); }
-        
-        /* Styles pour le plan interactif */
-        #map-container {
-            position: relative;
-            width: 100%;
-            max-width: 1000px;
-            margin: 0 auto;
-            background-color: rgba(255, 255, 255, 0.05);
-            border: 2px dashed rgba(255,255,255,0.2);
-            border-radius: 12px;
-            overflow: hidden;
-            aspect-ratio: 16 / 9;
-            background-size: contain;
-            background-repeat: no-repeat;
-            background-position: center;
-        }
-        
-        .map-device {
-            position: absolute;
-            transform: translate(-50%, -50%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            cursor: pointer;
-            z-index: 10;
-            transition: all 0.2s;
-        }
-        .map-device:hover { z-index: 20; transform: translate(-50%, -50%) scale(1.1); }
-        
-        .device-icon-wrapper {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            border: 2px solid white;
-            font-size: 18px;
-            background-color: #334155;
-        }
-        
-        .device-icon-wrapper.is-on { background-color: #eab308; border-color: #fef08a; color: #fff; box-shadow: 0 0 15px rgba(234, 179, 8, 0.6); }
-        .device-icon-wrapper.is-off { background-color: #475569; color: #cbd5e1; }
-        
-        .device-label {
-            background: rgba(0,0,0,0.7);
-            color: white;
-            font-size: 10px;
-            padding: 2px 6px;
-            border-radius: 4px;
-            margin-top: 4px;
-            white-space: nowrap;
-            pointer-events: none;
-        }
-
-        .device-settings-btn {
-            position: absolute;
-            top: -10px;
-            right: -10px;
-            background: #8b5cf6;
-            color: white;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            font-size: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-        }
-        
-        /* Drag & Drop sidebar */
-        .draggable-item { cursor: grab; }
-        .draggable-item:active { cursor: grabbing; }
+        .tab-active { background: white; color: #667eea; }
+        .tab-inactive { background: rgba(255, 255, 255, 0.2); color: white; }
     </style>
 </head>
-<body class="p-4 md:p-6">
-
-    <div id="login-modal" class="fixed inset-0 bg-gray-900 bg-opacity-95 z-50 flex items-center justify-center hidden">
-        <div class="bg-white text-gray-800 rounded-xl shadow-2xl p-8 max-w-md w-full m-4">
-            <h2 class="text-3xl font-bold text-center text-indigo-600 mb-2"><i class="fas fa-plug mr-2"></i>Connexion API</h2>
+<body class="p-4 md:p-8">
+    <div id="login-modal" class="fixed inset-0 bg-gray-900 bg-opacity-90 z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full m-4">
+            <h2 class="text-3xl font-bold text-center text-purple-600 mb-2"><i class="fas fa-home mr-2"></i>Connexion</h2>
             <p class="text-gray-500 text-center mb-6 text-sm">Entrez vos identifiants Tuya IoT Platform.</p>
             <form id="login-form" class="space-y-4">
                 <div><label class="block text-xs font-bold text-gray-700 mb-1">Access ID</label><input type="text" id="login-id" class="w-full px-3 py-2 border rounded-lg" required></div>
@@ -107,81 +31,57 @@
                     <div><label class="block text-xs font-bold text-gray-700 mb-1">Région</label><select id="login-region" class="w-full px-3 py-2 border rounded-lg"><option value="eu">Europe (eu)</option><option value="us">US (us)</option></select></div>
                     <div><label class="block text-xs font-bold text-gray-700 mb-1">Ville Shabbat</label><input type="text" id="login-city" value="Jerusalem" class="w-full px-3 py-2 border rounded-lg"></div>
                 </div>
-                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg mt-4 shadow-lg">Lancer la Maison</button>
+                <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg mt-4 shadow-lg transition-all">Se Connecter</button>
             </form>
         </div>
     </div>
 
-    <div id="device-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center hidden backdrop-blur-sm">
-        <div class="bg-gray-100 rounded-xl shadow-2xl max-w-sm w-full m-4 overflow-hidden relative">
-            <button onclick="closeDeviceModal()" class="absolute top-3 right-3 text-gray-500 hover:text-gray-800 text-2xl z-10"><i class="fas fa-times-circle"></i></button>
-            <div id="device-modal-content" class="p-1">
-                </div>
-        </div>
-    </div>
-
     <div id="main-app" class="max-w-7xl mx-auto hidden">
-        
-        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-            <h1 class="text-3xl font-bold text-white"><i class="fas fa-home mr-3 text-indigo-400"></i>Ma Maison 2.0</h1>
-            
-            <div class="flex bg-slate-800 p-1 rounded-lg">
-                <button onclick="setMode('use')" id="btn-mode-use" class="px-6 py-2 rounded-md font-bold text-sm bg-indigo-600 text-white shadow"><i class="fas fa-hand-pointer mr-2"></i>Utilisation</button>
-                <button onclick="setMode('edit')" id="btn-mode-edit" class="px-6 py-2 rounded-md font-bold text-sm text-gray-400 hover:text-white"><i class="fas fa-pen-ruler mr-2"></i>Conception</button>
-                <button onclick="setMode('shabbat')" id="btn-mode-shabbat" class="px-6 py-2 rounded-md font-bold text-sm text-gray-400 hover:text-white"><i class="fas fa-calendar-alt mr-2"></i>Shabbat</button>
-            </div>
-            
-            <button onclick="logout()" class="text-slate-400 hover:text-white text-sm"><i class="fas fa-sign-out-alt mr-2"></i>Quitter</button>
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-white"><i class="fas fa-menorah mr-3"></i>Dashboard</h1>
+            <button onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow"><i class="fas fa-sign-out-alt mr-2"></i>Déconnexion</button>
         </div>
         
-        <div id="loading" class="text-center py-4 hidden"><i class="fas fa-spinner fa-spin text-2xl text-indigo-400"></i><span class="ml-2">Synchronisation Tuya...</span></div>
-
-        <div id="view-map" class="flex flex-col md:flex-row gap-6">
-            
-            <div id="edit-sidebar" class="w-full md:w-1/4 bg-slate-800 rounded-xl p-4 hidden flex-col">
-                <h3 class="font-bold text-indigo-400 mb-4 border-b border-slate-700 pb-2"><i class="fas fa-upload mr-2"></i>1. Importer le plan</h3>
-                <input type="file" id="plan-upload" accept="image/*" class="text-xs mb-6 w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
-                
-                <h3 class="font-bold text-indigo-400 mb-4 border-b border-slate-700 pb-2"><i class="fas fa-boxes-packing mr-2"></i>2. Placer les appareils</h3>
-                <p class="text-xs text-slate-400 mb-4">Glissez les appareils de cette liste et déposez-les sur votre plan.</p>
-                <div id="unplaced-devices" class="space-y-2 overflow-y-auto flex-1 max-h-96 pr-2">
-                    </div>
-            </div>
-
-            <div class="w-full flex-1">
-                <div id="map-container" ondrop="drop(event)" ondragover="allowDrop(event)">
-                    </div>
-                <p id="edit-help-text" class="text-center text-sm text-indigo-300 mt-3 hidden"><i class="fas fa-info-circle mr-1"></i> Mode Édition : Glissez les appareils pour les déplacer. Double-cliquez pour les retirer du plan.</p>
+        <div class="flex justify-center mb-6 space-x-2">
+            <button onclick="switchTab('manual')" id="tab-manual" class="tab-active px-8 py-3 rounded-lg font-semibold transition-all"><i class="fas fa-hand-pointer mr-2"></i>Contrôle</button>
+            <button onclick="switchTab('shabbat')" id="tab-shabbat" class="tab-inactive px-8 py-3 rounded-lg font-semibold transition-all"><i class="fas fa-calendar-alt mr-2"></i>Shabbat</button>
+        </div>
+        
+        <div id="content-manual" class="tab-content">
+            <div class="bg-white rounded-xl shadow-2xl p-6 mb-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-lightbulb text-yellow-500 mr-2"></i>Mes Appareils</h2>
+                    <button onclick="loadDevices()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"><i class="fas fa-sync-alt mr-2"></i>Actualiser</button>
+                </div>
+                <div id="loading" class="text-center py-12 hidden"><i class="fas fa-spinner fa-spin text-4xl text-purple-600"></i><p class="text-gray-600 mt-4">Connexion à Tuya...</p></div>
+                <div id="devices-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
             </div>
         </div>
-
-        <div id="view-shabbat" class="hidden max-w-4xl mx-auto">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div class="bg-slate-800 rounded-xl shadow-xl p-6 border-t-4 border-indigo-500">
-                    <h2 class="text-xl font-bold mb-4"><i class="fas fa-clock text-indigo-400 mr-2"></i>Horaires de Shabbat</h2>
-                    <div id="shabbat-times" class="space-y-3"></div>
-                </div>
-                
-                <div class="bg-slate-800 rounded-xl shadow-xl p-6 border-t-4 border-green-500">
-                    <h2 class="text-xl font-bold mb-4"><i class="fas fa-plus-circle text-green-400 mr-2"></i>Nouvelle Tâche</h2>
-                    <form id="task-form" class="space-y-3">
-                        <div><input type="text" id="task-name" class="w-full px-3 py-2 bg-slate-700 border-none rounded text-white" placeholder="Nom de la tâche" required></div>
-                        <div><select id="task-device" class="w-full px-3 py-2 bg-slate-700 border-none rounded text-white" required></select></div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div><select id="task-action" class="w-full px-3 py-2 bg-slate-700 border-none rounded text-white"><option value="ON">Allumer</option><option value="OFF">Éteindre</option></select></div>
-                            <div><input type="datetime-local" id="task-time" class="w-full px-3 py-2 bg-slate-700 border-none rounded text-white" required></div>
-                        </div>
-                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 font-bold py-2 rounded mt-2">Programmer</button>
-                    </form>
-                </div>
+        
+        <div id="content-shabbat" class="tab-content hidden">
+            <div class="bg-gradient-to-r from-blue-900 to-indigo-800 rounded-xl shadow-2xl p-6 mb-6 text-white">
+                <h2 class="text-2xl font-bold mb-4"><i class="fas fa-clock mr-2"></i>Horaires de Shabbat</h2>
+                <div id="shabbat-times" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
             </div>
             
-            <div class="bg-slate-800 rounded-xl shadow-xl p-6">
-                <div class="flex justify-between items-center mb-4"><h2 class="text-xl font-bold"><i class="fas fa-list-check text-blue-400 mr-2"></i>Programmations actives</h2><button onclick="loadScheduledTasks()" class="text-slate-400 hover:text-white"><i class="fas fa-sync-alt"></i></button></div>
-                <div id="tasks-container" class="space-y-2"></div>
+            <div class="bg-white rounded-xl shadow-2xl p-6 mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4"><i class="fas fa-plus-circle text-green-500 mr-2"></i>Nouvelle Tâche</h2>
+                <form id="task-form" class="space-y-4">
+                    <div><label class="block font-semibold mb-2">Nom</label><input type="text" id="task-name" class="w-full px-4 py-2 border rounded-lg" required></div>
+                    <div><label class="block font-semibold mb-2">Appareil</label><select id="task-device" class="w-full px-4 py-2 border rounded-lg" required></select></div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label class="block font-semibold mb-2">Action</label><select id="task-action" class="w-full px-4 py-2 border rounded-lg"><option value="ON">Allumer</option><option value="OFF">Éteindre</option></select></div>
+                        <div><label class="block font-semibold mb-2">Heure</label><input type="datetime-local" id="task-time" class="w-full px-4 py-2 border rounded-lg" required></div>
+                    </div>
+                    <button type="submit" class="w-full bg-green-600 text-white font-bold py-3 rounded-lg">Programmer</button>
+                </form>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-2xl p-6">
+                <div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-list-check text-blue-500 mr-2"></i>Tâches Programmées</h2><button onclick="loadScheduledTasks()" class="bg-blue-600 text-white px-4 py-2 rounded-lg">Actualiser</button></div>
+                <div id="tasks-container" class="space-y-3"></div>
             </div>
         </div>
-
     </div>
     <script src="app.js"></script>
 </body>
