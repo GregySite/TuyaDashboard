@@ -3,9 +3,9 @@ const API_BASE = window.location.origin + '/api';
 let devices = [];
 let userCredentials = null;
 
-// --- VARIABLES DU PLAN ---
+// --- VARIABLES DU PLAN (Maintenant synchronisées avec le serveur) ---
 let isEditMode = false;
-let devicePositions = JSON.parse(localStorage.getItem('device_positions')) || {};
+let serverConfig = { image: null, positions: {} };
 
 // --- GESTION DE LA CONNEXION ---
 function checkAuth() {
@@ -19,6 +19,7 @@ function checkAuth() {
         loginModal.classList.add('hidden');
         mainApp.classList.remove('hidden');
         loadDevices();
+        fetchPlanConfig(); // Charge le plan depuis le serveur
     } else {
         loginModal.classList.remove('hidden');
         mainApp.classList.add('hidden');
@@ -45,21 +46,39 @@ async function apiFetch(endpoint, options = {}) {
     return fetch(API_BASE + endpoint, { ...options, headers });
 }
 
+// --- LOGIQUE DU PLAN SERVEUR ---
+async function fetchPlanConfig() {
+    try {
+        const res = await fetch(API_BASE + '/plan-config');
+        serverConfig = await res.json();
+        if(!serverConfig.positions) serverConfig.positions = {};
+        if(!document.getElementById('content-plan').classList.contains('hidden')) renderPlan();
+    } catch (e) { console.error("Erreur chargement plan", e); }
+}
+
+async function savePlanConfig() {
+    try {
+        await fetch(API_BASE + '/plan-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(serverConfig)
+        });
+    } catch (e) { console.error("Erreur sauvegarde plan", e); }
+}
+
 // --- LOGIQUE D'INTERFACE ---
 function switchTab(tab) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
     document.querySelectorAll('[id^="tab-"]').forEach(b => { 
-        b.classList.remove('tab-active'); 
-        b.classList.add('tab-inactive'); 
+        b.classList.remove('tab-active'); b.classList.add('tab-inactive'); 
     });
     
     document.getElementById(`content-${tab}`).classList.remove('hidden');
     const btn = document.getElementById(`tab-${tab}`);
-    btn.classList.remove('tab-inactive'); 
-    btn.classList.add('tab-active');
+    btn.classList.remove('tab-inactive'); btn.classList.add('tab-active');
     
     if (tab === 'manual') loadDevices();
-    if (tab === 'plan') renderPlan();
+    if (tab === 'plan') { fetchPlanConfig(); renderPlan(); }
     if (tab === 'shabbat') { loadShabbatTimes(); loadScheduledTasks(); loadDevicesForScheduling(); }
 }
 
@@ -97,7 +116,6 @@ async function loadDevices() {
 
 async function sendCommand(deviceId, code, value) {
     try {
-        // Pré-actualisation visuelle
         const device = devices.find(d => d.id === deviceId);
         if (device && device.status) {
             const s = device.status.find(st => st.code === code);
@@ -167,7 +185,8 @@ function initPlanLogic() {
         if(!file) return;
         const reader = new FileReader();
         reader.onload = (ev) => {
-            localStorage.setItem('plan_image', ev.target.result);
+            serverConfig.image = ev.target.result;
+            savePlanConfig();
             renderPlan();
         };
         reader.readAsDataURL(file);
@@ -190,29 +209,27 @@ function initPlanLogic() {
         if(!deviceId || !isEditMode) return;
         const rect = dropzone.getBoundingClientRect();
         
-        let x = ((e.clientX - rect.left) / rect.width) * 100;
-        let y = ((e.clientY - rect.top) / rect.height) * 100;
-        
-        // GRILLE (Snap to Grid) par pas de 4% sauf si la touche Maj est enfoncée
-        if (!e.shiftKey) {
-            x = Math.round(x / 4) * 4;
-            y = Math.round(y / 4) * 4;
-        }
+        // Placement exact (100% libre)
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
 
-        devicePositions[deviceId] = {x, y};
-        localStorage.setItem('device_positions', JSON.stringify(devicePositions));
+        serverConfig.positions[deviceId] = {x, y};
+        savePlanConfig();
         renderPlan();
     };
 }
 
 function renderPlan() {
-    const imgData = localStorage.getItem('plan_image');
     const imgEl = document.getElementById('plan-image');
     const placeholder = document.getElementById('plan-placeholder');
     const dropzone = document.getElementById('plan-dropzone');
     const sidebarList = document.getElementById('unplaced-devices');
     
-    if(imgData) { imgEl.src = imgData; imgEl.classList.remove('hidden'); placeholder.classList.add('hidden'); }
+    if(serverConfig.image) { 
+        imgEl.src = serverConfig.image; 
+        imgEl.classList.remove('hidden'); 
+        placeholder.classList.add('hidden'); 
+    }
     
     dropzone.innerHTML = '';
     sidebarList.innerHTML = '';
@@ -221,7 +238,7 @@ function renderPlan() {
         const state = {};
         if (device.status) device.status.forEach(s => { state[s.code] = s.value; });
         
-        const pos = devicePositions[device.id];
+        const pos = serverConfig.positions[device.id];
         const isSensor = device.category === 'wsdcg' || ('va_temperature' in state);
         const isBoiler = device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud');
         const switchesKeys = Object.keys(state).filter(k => k.startsWith('switch_') && k !== 'switch_led' && typeof state[k] === 'boolean');
@@ -259,7 +276,6 @@ function renderPlan() {
                 tokenContent.innerHTML = `<div class="w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 border-white shadow-lg cursor-pointer transition-all ${isOn ? 'bg-yellow-400 text-white scale-110 shadow-[0_0_15px_rgba(250,204,21,0.8)]' : 'bg-gray-800 text-white opacity-90 hover:bg-gray-700 hover:scale-105'}"><i class="fas ${icon}"></i></div>`;
             }
 
-            // MOTEUR DE DÉTECTION : CLIC VS APPUI LONG
             let pressTimer;
             let isLongPress = false;
             let startX, startY;
@@ -270,11 +286,10 @@ function renderPlan() {
                 const touch = e.touches ? e.touches[0] : e;
                 startX = touch.clientX;
                 startY = touch.clientY;
-
                 pressTimer = setTimeout(() => {
                     isLongPress = true;
                     openDeviceModal(device);
-                }, 500); // 500ms d'appui
+                }, 500);
             };
 
             const handlePointerUp = (e) => {
@@ -286,10 +301,8 @@ function renderPlan() {
                     const diffX = Math.abs(touch.clientX - startX);
                     const diffY = Math.abs(touch.clientY - startY);
                     
-                    // Si on a glissé sur l'écran (scroll/drag), ce n'est pas un clic
-                    if(diffX > 10 || diffY > 10) return;
+                    if(diffX > 10 || diffY > 10) return; // Scroll ignoré
 
-                    // Action de CLIC SIMPLE
                     if (switchesKeys.length > 1) {
                         const swPart = e.target.closest('.switch-part');
                         if (swPart) {
@@ -299,7 +312,6 @@ function renderPlan() {
                     } else if (!isSensor) {
                         sendCommand(device.id, mainSwitch, !state[mainSwitch]);
                     } else {
-                        // Les capteurs ouvrent toujours la fenêtre
                         openDeviceModal(device);
                     }
                 }
@@ -315,14 +327,18 @@ function renderPlan() {
             }
 
             const label = document.createElement('div');
-            label.className = 'bg-black bg-opacity-70 text-white text-[9px] px-2 py-0.5 rounded-full whitespace-nowrap pointer-events-none font-semibold shadow-sm tracking-wide';
+            label.className = 'bg-black bg-opacity-70 text-white text-[9px] px-2 py-0.5 rounded-full whitespace-nowrap pointer-events-none font-semibold shadow-sm tracking-wide mt-1';
             label.innerText = device.name;
 
             if (isEditMode) {
                 tokenContent.draggable = true;
                 tokenContent.classList.add('cursor-grab');
                 tokenContent.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
-                tokenContent.ondblclick = () => { delete devicePositions[device.id]; localStorage.setItem('device_positions', JSON.stringify(devicePositions)); renderPlan(); };
+                tokenContent.ondblclick = () => { 
+                    delete serverConfig.positions[device.id]; 
+                    savePlanConfig(); 
+                    renderPlan(); 
+                };
             }
 
             tokenContainer.appendChild(tokenContent);
@@ -344,7 +360,7 @@ function renderPlan() {
     }
 }
 
-// --- MOTEUR DE CARTE (Utilisé pour la Liste et le Pop-up) ---
+// --- MOTEUR DE CARTE ---
 function createDeviceCard(device) {
     const card = document.createElement('div');
     card.className = 'device-card bg-white rounded-xl p-5 shadow border-t-4 border-purple-500 w-full';
@@ -408,7 +424,7 @@ function createDeviceCard(device) {
     return card;
 }
 
-// --- SHABBAT / CRON ---
+// --- SHABBAT ---
 async function loadShabbatTimes() { /* Identique */ }
 async function loadDevicesForScheduling() { /* Identique */ }
 async function loadScheduledTasks() { /* Identique */ }
