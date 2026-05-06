@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tuya Dashboard V3</title>
+    <title>Tuya Dashboard V3 Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -17,10 +17,8 @@
         .tab-active { background: white; color: #667eea; }
         .tab-inactive { background: rgba(255, 255, 255, 0.2); color: white; }
         
-        /* Styles spécifiques pour le Plan V3 */
-        .device-token { cursor: grab; transition: transform 0.2s; }
-        .device-token:active { cursor: grabbing; transform: scale(1.1); }
-        .token-placed { position: absolute; transform: translate(-50%, -50%); cursor: pointer; }
+        /* Stop selection de texte sur appui long mobile */
+        .select-none { -webkit-user-select: none; user-select: none; }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -34,7 +32,7 @@
                 <div><label class="block text-xs font-bold text-gray-700 mb-1">UID Utilisateur</label><input type="text" id="login-uid" class="w-full px-3 py-2 border rounded-lg" required></div>
                 <div class="grid grid-cols-2 gap-4">
                     <div><label class="block text-xs font-bold text-gray-700 mb-1">Région</label><select id="login-region" class="w-full px-3 py-2 border rounded-lg"><option value="eu">Europe (eu)</option><option value="us">US (us)</option></select></div>
-                    <div><label class="block text-xs font-bold text-gray-700 mb-1">Ville Shabbat</label><input type="text" id="login-city" value="Jerusalem" class="w-full px-3 py-2 border rounded-lg"></div>
+                    <div><label class="block text-xs font-bold text-gray-700 mb-1">Ville</label><input type="text" id="login-city" value="Jerusalem" class="w-full px-3 py-2 border rounded-lg"></div>
                 </div>
                 <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg mt-4 shadow-lg transition-all">Se Connecter</button>
             </form>
@@ -57,7 +55,6 @@
             <div class="bg-white rounded-xl shadow-2xl p-6 mb-6">
                 <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                     <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-house-user text-purple-500 mr-2"></i>Ma Maison</h2>
-                    
                     <div class="flex gap-2">
                         <label class="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-4 py-2 rounded-lg cursor-pointer font-bold transition-colors text-sm flex items-center">
                             <i class="fas fa-upload mr-2"></i>Fond
@@ -72,9 +69,8 @@
                 <div class="flex flex-col md:flex-row gap-6">
                     <div id="plan-sidebar" class="w-full md:w-64 bg-gray-50 rounded-xl p-4 border-2 border-dashed border-gray-300 hidden">
                         <h3 class="font-bold text-gray-600 mb-3 text-xs uppercase tracking-wider">Appareils à placer</h3>
-                        <p class="text-xs text-gray-400 mb-4">Glissez les appareils vers le plan.</p>
-                        <div id="unplaced-devices" class="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-                            </div>
+                        <p class="text-[10px] text-gray-400 mb-4">Glissez les appareils vers le plan. Double-cliquez sur le plan pour les retirer.</p>
+                        <div id="unplaced-devices" class="space-y-2 max-h-[500px] overflow-y-auto pr-2"></div>
                     </div>
                     
                     <div id="plan-container" class="flex-1 relative bg-gray-100 rounded-xl border border-gray-200 overflow-hidden min-h-[500px] flex items-center justify-center">
@@ -82,12 +78,11 @@
                             <i class="fas fa-image text-5xl mb-3 block opacity-50"></i>
                             <p>Importez l'image de votre plan pour commencer</p>
                         </div>
-                        
                         <img id="plan-image" src="" class="w-full h-auto hidden select-none" alt="Plan">
-                        
                         <div id="plan-dropzone" class="absolute inset-0"></div>
                     </div>
                 </div>
+                <p class="text-xs text-center text-gray-400 mt-4"><i class="fas fa-info-circle mr-1"></i> Mode Utilisation : Cliquez pour allumer/éteindre. <b>Appui long</b> pour ouvrir les options (Minuteur, etc.).</p>
             </div>
         </div>
 
@@ -97,7 +92,7 @@
                     <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-lightbulb text-yellow-500 mr-2"></i>Vue Détaillée</h2>
                     <button onclick="loadDevices()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"><i class="fas fa-sync-alt mr-2"></i>Actualiser</button>
                 </div>
-                <div id="loading" class="text-center py-12 hidden"><i class="fas fa-spinner fa-spin text-4xl text-purple-600"></i><p class="text-gray-600 mt-4">Connexion à la maison...</p></div>
+                <div id="loading" class="text-center py-12 hidden"><i class="fas fa-spinner fa-spin text-4xl text-purple-600"></i><p class="text-gray-600 mt-4">Connexion...</p></div>
                 <div id="devices-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
             </div>
         </div>
@@ -125,6 +120,15 @@
             </div>
         </div>
     </div>
+
+    <div id="device-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 z-[60] flex items-center justify-center hidden" onclick="closeDeviceModal()">
+        <div class="relative w-full max-w-sm m-4 animate-scale-up" onclick="event.stopPropagation()">
+            <button onclick="closeDeviceModal()" class="absolute -top-3 -right-3 bg-red-500 text-white w-8 h-8 rounded-full font-bold shadow-lg z-10 hover:bg-red-600"><i class="fas fa-times"></i></button>
+            <div id="device-modal-content">
+                </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
