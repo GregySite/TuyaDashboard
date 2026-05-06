@@ -10,16 +10,13 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+// Force le chemin absolu vers le dossier public
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Stockage en mémoire (Attention: se vide au redémarrage du serveur)
 let scheduledTasks = [];
 let cronJobs = [];
-
-// Cache des tokens par utilisateur (clé = accessId)
 const tokenCache = new Map();
 
-// Helper: Extraire les credentials de la requête entrante
 function getCredentials(req) {
     const accessId = req.headers['x-tuya-access-id'];
     const accessSecret = req.headers['x-tuya-access-secret'];
@@ -33,189 +30,122 @@ function getCredentials(req) {
 }
 
 function getTuyaBaseUrl(region) {
-    const urls = {
-        us: 'https://openapi.tuyaus.com',
-        eu: 'https://openapi.tuyaeu.com',
-        cn: 'https://openapi.tuyacn.com',
-        in: 'https://openapi.tuyain.com'
-    };
+    const urls = { us: 'https://openapi.tuyaus.com', eu: 'https://openapi.tuyaeu.com', cn: 'https://openapi.tuyacn.com', in: 'https://openapi.tuyain.com' };
     return urls[region] || urls.eu;
 }
 
-// Helper: Obtenir le token (avec cache par utilisateur)
 async function getAccessToken(credentials) {
     const cached = tokenCache.get(credentials.accessId);
-    if (cached && cached.expiry && Date.now() < cached.expiry) {
-        return cached.token;
-    }
+    if (cached && cached.expiry && Date.now() < cached.expiry) return cached.token;
   
     const timestamp = Date.now().toString();
     const nonce = '';
-    const method = 'GET';
-    const reqPath = '/v1.0/token?grant_type=1';
-  
-    const stringToSign = [method, crypto.createHash('sha256').update('').digest('hex'), '', reqPath].join('\n');
+    const stringToSign = ['GET', crypto.createHash('sha256').update('').digest('hex'), '', '/v1.0/token?grant_type=1'].join('\n');
     const signStr = credentials.accessId + timestamp + nonce + stringToSign;
     const signature = crypto.createHmac('sha256', credentials.accessSecret).update(signStr).digest('hex').toUpperCase();
   
-    const headers = {
-        'client_id': credentials.accessId,
-        'sign': signature,
-        't': timestamp,
-        'sign_method': 'HMAC-SHA256',
-        'nonce': nonce
-    };
+    const headers = { 'client_id': credentials.accessId, 'sign': signature, 't': timestamp, 'sign_method': 'HMAC-SHA256', 'nonce': nonce };
   
     try {
-        const response = await axios({ method, url: getTuyaBaseUrl(credentials.region) + reqPath, headers });
-        if (response.data.success && response.data.result) {
+        const response = await axios({ method: 'GET', url: getTuyaBaseUrl(credentials.region) + '/v1.0/token?grant_type=1', headers });
+        if (response.data.success) {
             const token = response.data.result.access_token;
             const expiry = Date.now() + (response.data.result.expire_time || 7200) * 1000 - 1800000;
             tokenCache.set(credentials.accessId, { token, expiry });
             return token;
         }
-        throw new Error('Échec token: ' + JSON.stringify(response.data));
-    } catch (error) {
-        console.error('Token error:', error.response?.data || error.message);
-        throw error;
-    }
+        throw new Error('Échec token');
+    } catch (error) { throw error; }
 }
 
-// Helper: Générer la signature
 function generateTuyaSignature(method, reqPath, params = {}, bodyString = '', token = '', credentials) {
     const timestamp = Date.now().toString();
     const nonce = crypto.randomBytes(16).toString('hex');
-    
     const sortedParams = Object.keys(params).sort().map(key => `${key}=${params[key]}`).join('&');
     const queryString = sortedParams ? `?${sortedParams}` : '';
     const fullPath = reqPath + queryString;
     
     const contentHash = crypto.createHash('sha256').update(bodyString).digest('hex');
     const stringToSign = [method.toUpperCase(), contentHash, '', fullPath].join('\n');
-    
     const signStr = credentials.accessId + token + timestamp + nonce + stringToSign;
     const signature = crypto.createHmac('sha256', credentials.accessSecret).update(signStr).digest('hex').toUpperCase();
       
     return { timestamp, nonce, signature, fullPath };
 }
 
-// Helper: Requête API Tuya Universelle
 async function tuyaApiRequest(method, endpoint, body = null, params = {}, credentials) {
     const bodyString = body ? JSON.stringify(body) : '';
     const token = await getAccessToken(credentials);
-    
     const { timestamp, nonce, signature, fullPath } = generateTuyaSignature(method, endpoint, params, bodyString, token, credentials);
     
-    const headers = {
-        'client_id': credentials.accessId,
-        'access_token': token,
-        'sign': signature,
-        't': timestamp,
-        'nonce': nonce,
-        'sign_method': 'HMAC-SHA256'
-    };
-    
+    const headers = { 'client_id': credentials.accessId, 'access_token': token, 'sign': signature, 't': timestamp, 'nonce': nonce, 'sign_method': 'HMAC-SHA256' };
     if (method.toUpperCase() !== 'GET') headers['Content-Type'] = 'application/json';
     
     try {
         const response = await axios({ method, url: getTuyaBaseUrl(credentials.region) + fullPath, headers, data: body ? bodyString : undefined });
         return response.data;
-    } catch (error) {
-        console.error('Tuya API Error:', error.response?.data || error.message);
-        throw error;
-    }
+    } catch (error) { throw error; }
 }
-
-// --- ROUTES API ---
 
 app.get('/api/devices', async (req, res) => {
     try {
         const creds = getCredentials(req);
-        const result = await tuyaApiRequest('GET', `/v1.0/users/${creds.uid}/devices`, null, {}, creds);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed', details: error.message });
-    }
+        res.json(await tuyaApiRequest('GET', `/v1.0/users/${creds.uid}/devices`, null, {}, creds));
+    } catch (error) { res.status(500).json({ error: 'Failed', details: error.message }); }
 });
 
 app.post('/api/devices/:deviceId/commands', async (req, res) => {
     try {
         const creds = getCredentials(req);
-        const result = await tuyaApiRequest('POST', `/v1.0/devices/${req.params.deviceId}/commands`, { commands: req.body.commands }, {}, creds);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed', details: error.message });
-    }
+        res.json(await tuyaApiRequest('POST', `/v1.0/devices/${req.params.deviceId}/commands`, { commands: req.body.commands }, {}, creds));
+    } catch (error) { res.status(500).json({ error: 'Failed', details: error.message }); }
 });
 
 app.get('/api/shabbat-times', async (req, res) => {
     try {
         const city = req.headers['x-shabbat-city'] || 'Jerusalem';
-        const response = await axios.get('https://www.hebcal.com/shabbat', {
-            params: { cfg: 'json', geo: 'city', city: city, m: 42, b: 18 }
-        });
+        const response = await axios.get('https://www.hebcal.com/shabbat', { params: { cfg: 'json', geo: 'city', city: city, m: 42, b: 18 } });
         const items = response.data.items;
-        res.json({
-            success: true,
-            candleLighting: items.find(i => i.category === 'candles'),
-            havdalah: items.find(i => i.category === 'havdalah'),
-            location: response.data.location
-        });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed', details: error.message });
-    }
+        res.json({ success: true, candleLighting: items.find(i => i.category === 'candles'), havdalah: items.find(i => i.category === 'havdalah') });
+    } catch (error) { res.status(500).json({ error: 'Failed', details: error.message }); }
 });
 
 app.get('/api/scheduled-tasks', (req, res) => {
     try {
         const creds = getCredentials(req);
-        // Ne renvoie que les tâches de cet utilisateur
-        const userTasks = scheduledTasks.filter(t => t.credentials.uid === creds.uid);
+        const userTasks = scheduledTasks.filter(t => t.credentials && t.credentials.uid === creds.uid);
         res.json({ success: true, tasks: userTasks });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed', details: error.message });
-    }
+    } catch (error) { res.status(500).json({ error: 'Failed', details: error.message }); }
 });
 
 app.post('/api/scheduled-tasks', (req, res) => {
     try {
         const creds = getCredentials(req);
         const { name, deviceId, deviceName, action, executeAt, commands } = req.body;
-        
         const task = {
-            id: Date.now().toString(),
-            name, deviceId, deviceName, action, executeAt,
+            id: Date.now().toString(), name, deviceId, deviceName, action, executeAt,
             commands: commands || [{ code: 'switch_1', value: action === 'ON' }],
-            status: 'scheduled',
-            credentials: creds // On sauvegarde les clés avec la tâche pour le Cron !
+            status: 'scheduled', credentials: creds
         };
-        
         scheduledTasks.push(task);
         scheduleTask(task);
         res.json({ success: true, task });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed', details: error.message });
-    }
+    } catch (error) { res.status(500).json({ error: 'Failed', details: error.message }); }
 });
 
 app.delete('/api/scheduled-tasks/:taskId', (req, res) => {
-    try {
-        const taskIndex = scheduledTasks.findIndex(t => t.id === req.params.taskId);
-        if (taskIndex > -1) {
-            const jobIndex = cronJobs.findIndex(j => j.taskId === req.params.taskId);
-            if (jobIndex > -1) { cronJobs[jobIndex].job.stop(); cronJobs.splice(jobIndex, 1); }
-            scheduledTasks.splice(taskIndex, 1);
-        }
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed', details: error.message });
+    const taskIndex = scheduledTasks.findIndex(t => t.id === req.params.taskId);
+    if (taskIndex > -1) {
+        const jobIndex = cronJobs.findIndex(j => j.taskId === req.params.taskId);
+        if (jobIndex > -1) { cronJobs[jobIndex].job.stop(); cronJobs.splice(jobIndex, 1); }
+        scheduledTasks.splice(taskIndex, 1);
     }
+    res.json({ success: true });
 });
 
 function scheduleTask(task) {
     const executeDate = new Date(task.executeAt);
     if (executeDate <= new Date()) return;
-    
     const cronExpression = `${executeDate.getMinutes()} ${executeDate.getHours()} ${executeDate.getDate()} ${executeDate.getMonth() + 1} *`;
     
     const job = cron.schedule(cronExpression, async () => {
@@ -228,14 +158,12 @@ function scheduleTask(task) {
             if (taskRef) { taskRef.status = 'failed'; taskRef.error = error.message; }
         }
     }, { timezone: "Asia/Jerusalem" });
-    
     cronJobs.push({ taskId: task.id, job });
 }
 
+// Redirection finale pour le frontend
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Tuya Dashboard SaaS running on port ${PORT}`);
-});
+app.listen(PORT, () => { console.log(`🚀 Tuya Dashboard SaaS running on port ${PORT}`); });
