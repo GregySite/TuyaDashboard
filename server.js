@@ -4,28 +4,52 @@ const crypto = require('crypto');
 const axios = require('axios');
 const cron = require('node-cron');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Augmente la limite à 10mb pour pouvoir uploader de belles images de plan
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
-app.use(express.json());
-// Force le chemin absolu vers le dossier public
 app.use(express.static(path.join(__dirname, 'public')));
 
 let scheduledTasks = [];
 let cronJobs = [];
 const tokenCache = new Map();
 
+// --- SAUVEGARDE DU PLAN (Fichier JSON local) ---
+const configPath = path.join(__dirname, 'plan-config.json');
+
+app.get('/api/plan-config', (req, res) => {
+    try {
+        if (fs.existsSync(configPath)) {
+            res.json(JSON.parse(fs.readFileSync(configPath, 'utf8')));
+        } else {
+            res.json({ image: null, positions: {} });
+        }
+    } catch (e) {
+        res.json({ image: null, positions: {} });
+    }
+});
+
+app.post('/api/plan-config', (req, res) => {
+    try {
+        fs.writeFileSync(configPath, JSON.stringify(req.body));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// --- API TUYA ---
 function getCredentials(req) {
     const accessId = req.headers['x-tuya-access-id'];
     const accessSecret = req.headers['x-tuya-access-secret'];
     const uid = req.headers['x-tuya-uid'];
     const region = req.headers['x-tuya-region'] || 'eu';
-    
-    if (!accessId || !accessSecret || !uid) {
-        throw new Error("Identifiants Tuya manquants dans la requête.");
-    }
+    if (!accessId || !accessSecret || !uid) throw new Error("Identifiants manquants.");
     return { accessId, accessSecret, uid, region };
 }
 
@@ -161,7 +185,6 @@ function scheduleTask(task) {
     cronJobs.push({ taskId: task.id, job });
 }
 
-// Redirection finale pour le frontend
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
