@@ -8,7 +8,6 @@ let pollingInterval = null;
 
 // --- GESTION DE LA CONNEXION & QR CODE ---
 function checkAuth() {
-    // Vérifie si on arrive depuis un QR Code (URL Parameters)
     const urlParams = new URLSearchParams(window.location.search);
     if(urlParams.has('id') && urlParams.has('secret')) {
         const creds = {
@@ -33,7 +32,7 @@ function checkAuth() {
         mainApp.classList.remove('hidden');
         loadDevices();
         fetchPlanConfig();
-        startPolling(); // Lancement du Smart Polling
+        startPolling(); 
     } else {
         loginModal.classList.remove('hidden');
         mainApp.classList.add('hidden');
@@ -80,7 +79,6 @@ function startPolling() {
     });
 
     pollingInterval = setInterval(async () => {
-        // Stop API si l'écran est éteint, sur un autre onglet, ou en mode édition
         if (document.hidden || isEditMode || !document.getElementById('device-modal').classList.contains('hidden')) return; 
         
         try {
@@ -95,7 +93,7 @@ function startPolling() {
                 }
             }
         } catch(e) { console.log("Polling error"); }
-    }, 10000); // Mise à jour toutes les 10 secondes
+    }, 10000); 
 }
 
 async function loadDevices() {
@@ -201,53 +199,59 @@ function initPlanLogic() {
         planContainer.appendChild(fsBtn);
     }
 
-    document.getElementById('upload-plan').addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if(!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => { serverConfig.image = ev.target.result; savePlanConfig(); renderPlan(); };
-        reader.readAsDataURL(file);
-    });
+    const uploadBtn = document.getElementById('upload-plan');
+    if (uploadBtn) {
+        uploadBtn.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => { serverConfig.image = ev.target.result; savePlanConfig(); renderPlan(); };
+            reader.readAsDataURL(file);
+        });
+    }
 
-    document.getElementById('btn-edit-mode').addEventListener('click', () => {
-        isEditMode = !isEditMode;
-        document.getElementById('plan-sidebar').classList.toggle('hidden', !isEditMode);
-        const btn = document.getElementById('btn-edit-mode');
-        btn.innerHTML = isEditMode ? '<i class="fas fa-check mr-2"></i>Terminer Édition' : '<i class="fas fa-tools mr-2"></i>Mode Édition';
-        btn.className = isEditMode ? "bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm" : "bg-gray-200 text-gray-700 hover:bg-gray-300 px-4 py-2 rounded-lg font-bold text-sm";
-        renderPlan();
-    });
+    const editBtn = document.getElementById('btn-edit-mode');
+    if (editBtn) {
+        editBtn.addEventListener('click', () => {
+            isEditMode = !isEditMode;
+            document.getElementById('plan-sidebar').classList.toggle('hidden', !isEditMode);
+            editBtn.innerHTML = isEditMode ? '<i class="fas fa-check mr-2"></i>Terminer Édition' : '<i class="fas fa-tools mr-2"></i>Mode Édition';
+            editBtn.className = isEditMode ? "bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm" : "bg-gray-200 text-gray-700 hover:bg-gray-300 px-4 py-2 rounded-lg font-bold text-sm";
+            renderPlan();
+        });
+    }
 
     const dropzone = document.getElementById('plan-dropzone');
-    dropzone.ondragover = (e) => e.preventDefault();
-    dropzone.ondrop = (e) => {
-        e.preventDefault();
-        if(!isEditMode) return;
-        
-        try {
-            const dataStr = e.dataTransfer.getData('text/plain');
-            let deviceId = dataStr;
-            let offset = { x: 20, y: 20 };
+    if (dropzone) {
+        dropzone.ondragover = (e) => e.preventDefault();
+        dropzone.ondrop = (e) => {
+            e.preventDefault();
+            if(!isEditMode) return;
             
-            if(dataStr.includes('{')) {
-                const parsed = JSON.parse(dataStr);
-                deviceId = parsed.id;
-                offset = { x: parsed.ox, y: parsed.oy };
-            }
-            
-            const rect = dropzone.getBoundingClientRect();
-            // Précision chirurgicale : annule le décalage de la souris
-            const exactX = (e.clientX - rect.left) - offset.x + 20; 
-            const exactY = (e.clientY - rect.top) - offset.y + 20;
-            
-            serverConfig.positions[deviceId] = {
-                x: (exactX / rect.width) * 100,
-                y: (exactY / rect.height) * 100
-            };
-            savePlanConfig();
-            renderPlan();
-        } catch(err) { console.error("Erreur drag", err); }
-    };
+            try {
+                const dataStr = e.dataTransfer.getData('text/plain');
+                let deviceId = dataStr;
+                let offset = { x: 20, y: 20 };
+                
+                if(dataStr.includes('{')) {
+                    const parsed = JSON.parse(dataStr);
+                    deviceId = parsed.id;
+                    offset = { x: parsed.ox, y: parsed.oy };
+                }
+                
+                const rect = dropzone.getBoundingClientRect();
+                const exactX = (e.clientX - rect.left) - offset.x + 20; 
+                const exactY = (e.clientY - rect.top) - offset.y + 20;
+                
+                serverConfig.positions[deviceId] = {
+                    x: (exactX / rect.width) * 100,
+                    y: (exactY / rect.height) * 100
+                };
+                savePlanConfig();
+                renderPlan();
+            } catch(err) { console.error("Erreur drag", err); }
+        };
+    }
 }
 
 function renderPlan() {
@@ -256,7 +260,13 @@ function renderPlan() {
     const dropzone = document.getElementById('plan-dropzone');
     const sidebarList = document.getElementById('unplaced-devices');
     
-    if(serverConfig.image) { imgEl.src = serverConfig.image; imgEl.classList.remove('hidden'); placeholder.classList.add('hidden'); }
+    if (!dropzone || !sidebarList) return;
+
+    if(serverConfig.image) { 
+        imgEl.src = serverConfig.image; 
+        imgEl.classList.remove('hidden'); 
+        if(placeholder) placeholder.classList.add('hidden'); 
+    }
     
     dropzone.innerHTML = '';
     sidebarList.innerHTML = '';
@@ -360,7 +370,7 @@ function renderPlan() {
             
         } else if (isEditMode) {
             const listItem = document.createElement('div');
-            listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-xs font-bold text-gray-700";
+            listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-xs font-bold text-gray-700 transition-colors";
             listItem.draggable = true;
             listItem.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
             listItem.innerHTML = `<i class="fas fa-grip-vertical text-gray-300 mr-3"></i> ${device.name}`;
@@ -404,11 +414,65 @@ function createDeviceCard(device) {
     return card;
 }
 
-async function loadShabbatTimes() { /* Inchangé */ }
-async function loadDevicesForScheduling() { /* Inchangé */ }
-async function loadScheduledTasks() { /* Inchangé */ }
+// --- SHABBAT & TACHES ---
+async function loadShabbatTimes() {
+    try {
+        const response = await apiFetch('/shabbat-times');
+        const data = await response.json();
+        if (data.success) {
+            const cd = new Date(data.candleLighting.date);
+            const hd = new Date(data.havdalah.date);
+            const shabbatDiv = document.getElementById('shabbat-times');
+            if (shabbatDiv) {
+                shabbatDiv.innerHTML = `
+                    <div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3><i class="fas fa-candle-holder mr-2"></i>Bougies</h3><p class="text-2xl font-bold">${cd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
+                    <div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3><i class="fas fa-star mr-2"></i>Havdalah</h3><p class="text-2xl font-bold">${hd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
+                `;
+            }
+            const taskTime = document.getElementById('task-time');
+            if (taskTime) taskTime.value = new Date(cd.getTime() - 7200000).toISOString().slice(0,16);
+        }
+    } catch(e) {}
+}
 
-window.addEventListener('DOMContentLoaded', () => {
+async function loadDevicesForScheduling() {
+    const select = document.getElementById('task-device');
+    if (!select) return;
+    if (devices.length === 0) await loadDevices();
+    select.innerHTML = '<option value="">Choisir un appareil...</option>';
+    devices.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify({id: d.id, name: d.name});
+        opt.textContent = d.name;
+        select.appendChild(opt);
+    });
+}
+
+async function loadScheduledTasks() {
+    const c = document.getElementById('tasks-container');
+    if (!c) return;
+    try {
+        const res = await apiFetch('/scheduled-tasks');
+        const data = await res.json();
+        c.innerHTML = data.tasks.length ? '' : '<p class="text-gray-500 text-center py-4">Aucune tâche programmée.</p>';
+        data.tasks.forEach(t => {
+            const isPast = new Date(t.executeAt) < new Date();
+            c.innerHTML += `<div class="bg-gray-50 p-3 rounded flex justify-between items-center mb-2 border-l-4 ${isPast?'border-gray-400':'border-purple-500'}">
+                <div class="text-sm"><h4 class="font-bold">${t.name}</h4><p class="text-[10px] text-gray-500">${t.deviceName} - ${t.action} à ${new Date(t.executeAt).toLocaleString('fr-FR')}</p></div>
+                <button onclick="deleteTask('${t.id}')" class="text-red-400 hover:text-red-600 transition-colors"><i class="fas fa-trash"></i></button>
+            </div>`;
+        });
+    } catch(e) {}
+}
+
+async function deleteTask(id) {
+    if(!confirm("Voulez-vous vraiment supprimer cette tâche ?")) return;
+    await apiFetch(`/scheduled-tasks/${id}`, { method: 'DELETE' });
+    loadScheduledTasks();
+}
+
+// --- INITIALISATION "ANTI-BABEL CRASH" ---
+function initApp() {
     initPlanLogic();
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
@@ -425,5 +489,37 @@ window.addEventListener('DOMContentLoaded', () => {
             checkAuth();
         });
     }
+
+    const taskForm = document.getElementById('task-form');
+    if (taskForm) {
+        taskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const devValue = document.getElementById('task-device').value;
+            if (!devValue) return alert("Veuillez choisir un appareil.");
+            
+            const dev = JSON.parse(devValue);
+            const action = document.getElementById('task-action').value;
+            try {
+                await apiFetch('/scheduled-tasks', {
+                    method: 'POST', body: JSON.stringify({
+                        name: document.getElementById('task-name').value,
+                        deviceId: dev.id, deviceName: dev.name, action,
+                        executeAt: new Date(document.getElementById('task-time').value).toISOString(),
+                        commands: [{code: 'switch_1', value: action === 'ON'}]
+                    })
+                });
+                loadScheduledTasks();
+                alert("Tâche programmée avec succès !");
+            } catch(e) { alert("Erreur lors de la programmation."); }
+        });
+    }
+
     checkAuth();
-});
+}
+
+// Babel lance le script une fois la page déjà chargée.
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
