@@ -3,20 +3,23 @@ const API_BASE = window.location.origin + '/api';
 let devices = [];
 let userCredentials = null;
 
+// --- VARIABLES DU PLAN ---
+let isEditMode = false;
+let devicePositions = JSON.parse(localStorage.getItem('device_positions')) || {};
+
 // --- GESTION DE LA CONNEXION ---
 function checkAuth() {
     const saved = localStorage.getItem('tuya_credentials');
     const loginModal = document.getElementById('login-modal');
     const mainApp = document.getElementById('main-app');
 
-    // Sécurité anti-crash
     if (!loginModal || !mainApp) return;
 
     if (saved) {
         userCredentials = JSON.parse(saved);
         loginModal.classList.add('hidden');
         mainApp.classList.remove('hidden');
-        loadDevices();
+        loadDevices(); // Charge les appareils au démarrage
     } else {
         loginModal.classList.remove('hidden');
         mainApp.classList.add('hidden');
@@ -43,7 +46,7 @@ async function apiFetch(endpoint, options = {}) {
     return fetch(API_BASE + endpoint, { ...options, headers });
 }
 
-// --- LOGIQUE D'INTERFACE ---
+// --- LOGIQUE D'INTERFACE (ONGLETS) ---
 function switchTab(tab) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
     document.querySelectorAll('[id^="tab-"]').forEach(b => { 
@@ -57,6 +60,7 @@ function switchTab(tab) {
     btn.classList.add('tab-active');
     
     if (tab === 'manual') loadDevices();
+    if (tab === 'plan') renderPlan();
     if (tab === 'shabbat') { loadShabbatTimes(); loadScheduledTasks(); loadDevicesForScheduling(); }
 }
 
@@ -66,7 +70,6 @@ async function loadDevices() {
     const scrollPos = window.scrollY;
     
     if (!container || !loading) return;
-
     if (container.innerHTML === '') loading.classList.remove('hidden');
     
     try {
@@ -82,6 +85,11 @@ async function loadDevices() {
                 devices.forEach(d => container.appendChild(createDeviceCard(d)));
             }
             window.scrollTo(0, scrollPos);
+            
+            // Met à jour le plan si on est dessus
+            if(!document.getElementById('content-plan').classList.contains('hidden')) {
+                renderPlan();
+            }
         } else {
             if (data.code === 1004 || data.code === 1106) {
                 alert("Identifiants incorrects ou expirés !");
@@ -102,19 +110,187 @@ async function sendCommand(deviceId, code, value) {
             body: JSON.stringify({ commands: [{ code, value }] })
         });
         const data = await res.json();
-        if (data.success) setTimeout(loadDevices, 500);
+        if (data.success) {
+            // Mise à jour locale immédiate pour plus de fluidité
+            const device = devices.find(d => d.id === deviceId);
+            if (device && device.status) {
+                const statusIndex = device.status.findIndex(s => s.code === code);
+                if (statusIndex !== -1) device.status[statusIndex].value = value;
+            }
+            // Recharge l'affichage sans rappeler l'API immédiatement
+            if(!document.getElementById('content-plan').classList.contains('hidden')) renderPlan();
+            else if(!document.getElementById('content-manual').classList.contains('hidden')) {
+                document.getElementById('devices-container').innerHTML = '';
+                devices.forEach(d => document.getElementById('devices-container').appendChild(createDeviceCard(d)));
+            }
+            setTimeout(loadDevices, 1500); // Confirmation serveur 1.5s plus tard
+        }
     } catch (e) { console.error(e); }
 }
 
 function setCountdown(deviceId) {
     const timerSelect = document.getElementById(`timer-${deviceId}`);
     if (timerSelect) {
-        const seconds = parseInt(timerSelect.value);
-        sendCommand(deviceId, 'countdown_1', seconds);
+        sendCommand(deviceId, 'countdown_1', parseInt(timerSelect.value));
     }
 }
 
-// --- LE MOTEUR DE GÉNÉRATION DES CARTES ---
+// --- MODULE LE PLAN V3 ---
+
+function initPlanLogic() {
+    // Bouton Plein Écran (Créé dynamiquement)
+    const planContainer = document.getElementById('plan-container');
+    if (planContainer && !document.getElementById('fullscreen-btn')) {
+        const fsBtn = document.createElement('button');
+        fsBtn.id = 'fullscreen-btn';
+        fsBtn.className = "absolute top-2 right-2 bg-gray-900 bg-opacity-60 text-white p-2 rounded-lg hover:bg-opacity-100 z-20 transition-all";
+        fsBtn.innerHTML = '<i class="fas fa-expand"></i>';
+        fsBtn.onclick = () => {
+            if (!document.fullscreenElement) planContainer.requestFullscreen();
+            else document.exitFullscreen();
+        };
+        planContainer.appendChild(fsBtn);
+    }
+
+    // Gestion de l'import d'image
+    document.getElementById('upload-plan').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                localStorage.setItem('plan_image', ev.target.result);
+                renderPlan();
+            } catch(err) {
+                alert("L'image est trop volumineuse pour la mémoire du navigateur (Max ~5 Mo). Veuillez la redimensionner ou la compresser.");
+            }
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Gestion du bouton "Mode Édition"
+    document.getElementById('btn-edit-mode').addEventListener('click', () => {
+        isEditMode = !isEditMode;
+        document.getElementById('plan-sidebar').classList.toggle('hidden', !isEditMode);
+        
+        const btn = document.getElementById('btn-edit-mode');
+        if(isEditMode) {
+            btn.classList.replace('bg-gray-200', 'bg-blue-500');
+            btn.classList.replace('text-gray-700', 'text-white');
+            btn.innerHTML = '<i class="fas fa-check mr-2"></i>Terminer Édition';
+        } else {
+            btn.classList.replace('bg-blue-500', 'bg-gray-200');
+            btn.classList.replace('text-white', 'text-gray-700');
+            btn.innerHTML = '<i class="fas fa-tools mr-2"></i>Mode Édition';
+        }
+        renderPlan();
+    });
+
+    // Gestion du Drop sur l'image
+    const dropzone = document.getElementById('plan-dropzone');
+    dropzone.ondragover = (e) => e.preventDefault();
+    dropzone.ondrop = (e) => {
+        e.preventDefault();
+        const deviceId = e.dataTransfer.getData('text/plain');
+        if(!deviceId || !isEditMode) return;
+        
+        const rect = dropzone.getBoundingClientRect();
+        // Calcul du pourcentage exact pour rester au même endroit peu importe l'écran
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        
+        devicePositions[deviceId] = {x, y};
+        localStorage.setItem('device_positions', JSON.stringify(devicePositions));
+        renderPlan();
+    };
+}
+
+function renderPlan() {
+    const imgData = localStorage.getItem('plan_image');
+    const imgEl = document.getElementById('plan-image');
+    const placeholder = document.getElementById('plan-placeholder');
+    const dropzone = document.getElementById('plan-dropzone');
+    const sidebarList = document.getElementById('unplaced-devices');
+    
+    // Gère l'affichage de l'image de fond
+    if(imgData) {
+        imgEl.src = imgData;
+        imgEl.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+    } else {
+        imgEl.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+    }
+    
+    dropzone.innerHTML = '';
+    sidebarList.innerHTML = '';
+    
+    // Parcourt les appareils pour les placer
+    devices.forEach(device => {
+        const switchStatus = device.status?.find(s => s.code === 'switch_1' || s.code === 'switch_led');
+        const isOn = switchStatus?.value || false;
+        const hasSwitch = switchStatus !== undefined;
+        const pos = devicePositions[device.id];
+        
+        let icon = 'fa-lightbulb';
+        if (device.category === 'wsdcg') icon = 'fa-temperature-half';
+        else if (device.category === 'infrared_ac') icon = 'fa-snowflake';
+        else if (device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud')) icon = 'fa-fire-flame-simple';
+        else if (!hasSwitch) icon = 'fa-microchip'; // Capteurs divers
+        
+        if (pos) {
+            // L'appareil est placé sur le plan
+            const token = document.createElement('div');
+            // Style de l'icône sur le plan
+            let tokenStyle = isOn 
+                ? 'bg-yellow-400 text-white shadow-[0_0_15px_rgba(250,204,21,0.8)] scale-110' 
+                : 'bg-gray-800 bg-opacity-80 text-white';
+            
+            token.className = `token-placed w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 border-white transition-all duration-300 ${tokenStyle}`;
+            token.style.left = pos.x + '%';
+            token.style.top = pos.y + '%';
+            token.title = device.name;
+            token.innerHTML = `<i class="fas ${icon}"></i>`;
+            
+            if (isEditMode) {
+                token.draggable = true;
+                token.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
+                token.classList.add('cursor-grab', 'border-blue-500', 'border-dashed');
+                
+                // Double clic pour le retirer du plan
+                token.ondblclick = () => {
+                    delete devicePositions[device.id];
+                    localStorage.setItem('device_positions', JSON.stringify(devicePositions));
+                    renderPlan();
+                };
+            } else {
+                // Mode Utilisation : Clique pour allumer/éteindre
+                if (hasSwitch) {
+                    token.classList.add('cursor-pointer', 'hover:scale-125');
+                    token.onclick = () => sendCommand(device.id, switchStatus.code, !isOn);
+                }
+            }
+            dropzone.appendChild(token);
+        } else if (isEditMode) {
+            // L'appareil n'est pas placé, on le met dans la sidebar
+            const listItem = document.createElement('div');
+            listItem.className = `p-2 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-sm font-semibold text-gray-700`;
+            listItem.draggable = true;
+            listItem.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
+            listItem.innerHTML = `<i class="fas fa-grip-vertical text-gray-300 mr-3"></i> <i class="fas ${icon} text-purple-500 w-5 text-center mr-2"></i> ${device.name}`;
+            sidebarList.appendChild(token);
+        }
+    });
+
+    // Message si la liste est vide en mode édition
+    if (isEditMode && sidebarList.innerHTML === '') {
+        sidebarList.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">Tous les appareils sont placés !</p>';
+    }
+}
+
+
+// --- LE MOTEUR DE GÉNÉRATION DES CARTES (LISTE MANUELLE) ---
+// (Reste inchangé)
 function createDeviceCard(device) {
     const card = document.createElement('div');
     card.className = 'device-card bg-white rounded-xl p-5 shadow-lg flex flex-col justify-between border-t-4 border-purple-500';
@@ -193,6 +369,7 @@ function createDeviceCard(device) {
 }
 
 // --- SHABBAT & TÂCHES ---
+// (Reste inchangé)
 async function loadShabbatTimes() {
     try {
         const response = await apiFetch('/shabbat-times');
@@ -249,10 +426,12 @@ async function deleteTask(id) {
     loadScheduledTasks();
 }
 
-// --- INITIALISATION SÉCURISÉE ---
-// Ce bloc garantit que le script ne se lancera que lorsque la page web sera 100% dessinée !
+// --- INITIALISATION ---
 window.addEventListener('DOMContentLoaded', () => {
     
+    // Attache les événements de la page d'accueil
+    initPlanLogic();
+
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
         loginForm.addEventListener('submit', (e) => {
@@ -293,6 +472,5 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Lance l'application
     checkAuth();
 });
