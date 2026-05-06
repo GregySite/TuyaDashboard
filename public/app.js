@@ -81,7 +81,6 @@ async function loadDevices() {
             
             if(!document.getElementById('content-plan').classList.contains('hidden')) renderPlan();
             
-            // Si le modal est ouvert, on le met à jour
             const modalContent = document.getElementById('device-modal-content');
             if(modalContent.firstChild && !document.getElementById('device-modal').classList.contains('hidden')) {
                 const openDeviceId = modalContent.firstChild.getAttribute('data-device-id');
@@ -98,19 +97,20 @@ async function loadDevices() {
 
 async function sendCommand(deviceId, code, value) {
     try {
+        // Pré-actualisation visuelle
+        const device = devices.find(d => d.id === deviceId);
+        if (device && device.status) {
+            const s = device.status.find(st => st.code === code);
+            if (s) s.value = value;
+        }
+        renderPlan();
+
         const res = await apiFetch(`/devices/${deviceId}/commands`, {
             method: 'POST', body: JSON.stringify({ commands: [{ code, value }] })
         });
         const data = await res.json();
+        
         if (data.success) {
-            const device = devices.find(d => d.id === deviceId);
-            if (device && device.status) {
-                const s = device.status.find(st => st.code === code);
-                if (s) s.value = value;
-            }
-            renderPlan(); // Update visuel immédiat
-            
-            // Update du modal si ouvert
             const modalContent = document.getElementById('device-modal-content');
             if(modalContent.firstChild && !document.getElementById('device-modal').classList.contains('hidden')) {
                 modalContent.innerHTML = '';
@@ -124,7 +124,7 @@ function setCountdown(deviceId) {
     const timerSelect = document.getElementById(`timer-${deviceId}`);
     if (timerSelect) {
         sendCommand(deviceId, 'countdown_1', parseInt(timerSelect.value));
-        closeDeviceModal(); // Ferme le modal après avoir réglé le timer
+        closeDeviceModal();
     }
 }
 
@@ -135,7 +135,6 @@ function openDeviceModal(device) {
     const content = document.getElementById('device-modal-content');
     content.innerHTML = '';
     
-    // On injecte la même carte détaillée que l'onglet liste !
     const card = createDeviceCard(device);
     card.setAttribute('data-device-id', device.id);
     content.appendChild(card);
@@ -154,7 +153,7 @@ function initPlanLogic() {
     if (planContainer && !document.getElementById('fullscreen-btn')) {
         const fsBtn = document.createElement('button');
         fsBtn.id = 'fullscreen-btn';
-        fsBtn.className = "absolute top-2 right-2 bg-gray-900 bg-opacity-60 text-white p-2 rounded-lg z-20 hover:bg-opacity-100";
+        fsBtn.className = "absolute top-2 right-2 bg-gray-900 bg-opacity-60 text-white p-2 rounded-lg z-20 hover:bg-opacity-100 transition-all";
         fsBtn.innerHTML = '<i class="fas fa-expand"></i>';
         fsBtn.onclick = () => {
             if (!document.fullscreenElement) planContainer.requestFullscreen();
@@ -178,8 +177,8 @@ function initPlanLogic() {
         isEditMode = !isEditMode;
         document.getElementById('plan-sidebar').classList.toggle('hidden', !isEditMode);
         const btn = document.getElementById('btn-edit-mode');
-        btn.innerHTML = isEditMode ? '<i class="fas fa-check mr-2"></i>Terminer' : '<i class="fas fa-tools mr-2"></i>Mode Édition';
-        btn.className = isEditMode ? "bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm" : "bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-sm";
+        btn.innerHTML = isEditMode ? '<i class="fas fa-check mr-2"></i>Terminer Édition' : '<i class="fas fa-tools mr-2"></i>Mode Édition';
+        btn.className = isEditMode ? "bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm" : "bg-gray-200 text-gray-700 hover:bg-gray-300 px-4 py-2 rounded-lg font-bold text-sm";
         renderPlan();
     });
 
@@ -190,8 +189,16 @@ function initPlanLogic() {
         const deviceId = e.dataTransfer.getData('text/plain');
         if(!deviceId || !isEditMode) return;
         const rect = dropzone.getBoundingClientRect();
-        const x = ((e.clientX - rect.left) / rect.width) * 100;
-        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        
+        let x = ((e.clientX - rect.left) / rect.width) * 100;
+        let y = ((e.clientY - rect.top) / rect.height) * 100;
+        
+        // GRILLE (Snap to Grid) par pas de 4% sauf si la touche Maj est enfoncée
+        if (!e.shiftKey) {
+            x = Math.round(x / 4) * 4;
+            y = Math.round(y / 4) * 4;
+        }
+
         devicePositions[deviceId] = {x, y};
         localStorage.setItem('device_positions', JSON.stringify(devicePositions));
         renderPlan();
@@ -215,36 +222,25 @@ function renderPlan() {
         if (device.status) device.status.forEach(s => { state[s.code] = s.value; });
         
         const pos = devicePositions[device.id];
-        
-        // Détection du type d'appareil
         const isSensor = device.category === 'wsdcg' || ('va_temperature' in state);
         const isBoiler = device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud');
-        // Filtre pour trouver tous les interrupteurs (switch_1, switch_2...)
         const switchesKeys = Object.keys(state).filter(k => k.startsWith('switch_') && k !== 'switch_led' && typeof state[k] === 'boolean');
+        const mainSwitch = switchesKeys.length > 0 ? switchesKeys[0] : 'switch_1';
         
         if (pos) {
-            // CONTENEUR GLOBAL DU TOKEN (Positionné au centre)
             const tokenContainer = document.createElement('div');
             tokenContainer.className = 'absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 z-10';
             tokenContainer.style.left = pos.x + '%';
             tokenContainer.style.top = pos.y + '%';
 
-            // LE VISUEL DU TOKEN
             const tokenContent = document.createElement('div');
             tokenContent.className = 'select-none transition-transform duration-200';
             
             if (isSensor) {
-                // TOKEN CAPTEUR (Rectangle avec les valeurs)
                 const temp = state.va_temperature ? (state.va_temperature/10).toFixed(1) + '°C' : '--°C';
                 const hum = state.humidity_value ? state.humidity_value + '%' : '';
-                tokenContent.innerHTML = `
-                    <div class="bg-white text-gray-800 px-2 py-1 rounded shadow-lg border-2 border-orange-400 text-xs font-bold flex items-center whitespace-nowrap cursor-pointer hover:scale-105">
-                        <i class="fas fa-thermometer-half text-orange-500 mr-1"></i> ${temp}
-                        ${hum ? `<span class="mx-1 text-gray-300">|</span><i class="fas fa-droplet text-blue-500 mr-1"></i> ${hum}` : ''}
-                    </div>
-                `;
+                tokenContent.innerHTML = `<div class="bg-white text-gray-800 px-2 py-1 rounded shadow-lg border-2 border-orange-400 text-xs font-bold flex items-center whitespace-nowrap cursor-pointer hover:scale-105"><i class="fas fa-thermometer-half text-orange-500 mr-1"></i> ${temp} ${hum ? `<span class="mx-1 text-gray-300">|</span><i class="fas fa-droplet text-blue-500 mr-1"></i> ${hum}` : ''}</div>`;
             } else if (switchesKeys.length > 1) {
-                // TOKEN MULTI-BOUTONS (Double/Triple interrupteur en forme de pilule)
                 let pillHtml = '<div class="flex bg-gray-800 rounded-full shadow-lg border-2 border-white overflow-hidden cursor-pointer hover:scale-105">';
                 switchesKeys.forEach((swCode, idx) => {
                     const isOn = state[swCode];
@@ -255,76 +251,77 @@ function renderPlan() {
                 pillHtml += '</div>';
                 tokenContent.innerHTML = pillHtml;
             } else {
-                // TOKEN SIMPLE (Ampoule, Prise, Chauffe-eau)
                 let icon = 'fa-lightbulb';
                 if (isBoiler) icon = 'fa-fire-flame-simple';
                 else if (device.category === 'cz') icon = 'fa-plug';
                 
-                const mainSwitch = switchesKeys.length === 1 ? switchesKeys[0] : 'switch_1';
                 const isOn = state[mainSwitch] || state.switch_led;
-                
-                tokenContent.innerHTML = `
-                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 border-white shadow-lg cursor-pointer transition-all ${isOn ? 'bg-yellow-400 text-white scale-110 shadow-[0_0_15px_rgba(250,204,21,0.8)]' : 'bg-gray-800 text-white opacity-90 hover:bg-gray-700 hover:scale-105'}">
-                        <i class="fas ${icon}"></i>
-                    </div>
-                `;
+                tokenContent.innerHTML = `<div class="w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 border-white shadow-lg cursor-pointer transition-all ${isOn ? 'bg-yellow-400 text-white scale-110 shadow-[0_0_15px_rgba(250,204,21,0.8)]' : 'bg-gray-800 text-white opacity-90 hover:bg-gray-700 hover:scale-105'}"><i class="fas ${icon}"></i></div>`;
             }
 
-            // GESTION APPUI LONG vs CLIC
+            // MOTEUR DE DÉTECTION : CLIC VS APPUI LONG
             let pressTimer;
             let isLongPress = false;
+            let startX, startY;
 
-            const startPress = (e) => {
+            const handlePointerDown = (e) => {
                 if(isEditMode) return;
                 isLongPress = false;
+                const touch = e.touches ? e.touches[0] : e;
+                startX = touch.clientX;
+                startY = touch.clientY;
+
                 pressTimer = setTimeout(() => {
                     isLongPress = true;
                     openDeviceModal(device);
-                }, 500); // 500ms pour déclencher l'ouverture des options (Timer, etc.)
+                }, 500); // 500ms d'appui
             };
-            const cancelPress = () => clearTimeout(pressTimer);
 
-            if (!isEditMode) {
-                tokenContent.addEventListener('mousedown', startPress);
-                tokenContent.addEventListener('touchstart', startPress, {passive: true});
-                tokenContent.addEventListener('mouseup', cancelPress);
-                tokenContent.addEventListener('mouseleave', cancelPress);
-                tokenContent.addEventListener('touchend', cancelPress);
-                tokenContent.addEventListener('contextmenu', (e) => { e.preventDefault(); cancelPress(); }); // Bloque le menu clic-droit sur mobile
-            }
-
-            // GESTION DU CLIC NORMAL (ON/OFF)
-            tokenContent.onclick = (e) => {
-                if(isEditMode || isLongPress) return;
+            const handlePointerUp = (e) => {
+                if(isEditMode) return;
+                clearTimeout(pressTimer);
                 
-                if (switchesKeys.length > 1) {
-                    // Clic sur une partie spécifique de l'interrupteur double/triple
-                    const swPart = e.target.closest('.switch-part');
-                    if (swPart) {
-                        const swCode = swPart.getAttribute('data-sw');
-                        sendCommand(device.id, swCode, !state[swCode]);
+                if (!isLongPress) {
+                    const touch = e.changedTouches ? e.changedTouches[0] : e;
+                    const diffX = Math.abs(touch.clientX - startX);
+                    const diffY = Math.abs(touch.clientY - startY);
+                    
+                    // Si on a glissé sur l'écran (scroll/drag), ce n'est pas un clic
+                    if(diffX > 10 || diffY > 10) return;
+
+                    // Action de CLIC SIMPLE
+                    if (switchesKeys.length > 1) {
+                        const swPart = e.target.closest('.switch-part');
+                        if (swPart) {
+                            const swCode = swPart.getAttribute('data-sw');
+                            sendCommand(device.id, swCode, !state[swCode]);
+                        }
+                    } else if (!isSensor) {
+                        sendCommand(device.id, mainSwitch, !state[mainSwitch]);
+                    } else {
+                        // Les capteurs ouvrent toujours la fenêtre
+                        openDeviceModal(device);
                     }
-                } else if (!isSensor) {
-                    // Clic sur un bouton simple
-                    const mainSwitch = switchesKeys.length === 1 ? switchesKeys[0] : 'switch_1';
-                    sendCommand(device.id, mainSwitch, !state[mainSwitch]);
-                } else {
-                    // Clic sur le capteur -> Ouvre directement les détails
-                    openDeviceModal(device);
                 }
             };
 
-            // ÉTIQUETTE DU NOM EN DESSOUS
+            if (!isEditMode) {
+                tokenContent.addEventListener('mousedown', handlePointerDown);
+                tokenContent.addEventListener('touchstart', handlePointerDown, {passive: true});
+                tokenContent.addEventListener('mouseup', handlePointerUp);
+                tokenContent.addEventListener('touchend', handlePointerUp);
+                tokenContent.addEventListener('mouseleave', () => clearTimeout(pressTimer));
+                tokenContent.addEventListener('contextmenu', (e) => { e.preventDefault(); clearTimeout(pressTimer); });
+            }
+
             const label = document.createElement('div');
             label.className = 'bg-black bg-opacity-70 text-white text-[9px] px-2 py-0.5 rounded-full whitespace-nowrap pointer-events-none font-semibold shadow-sm tracking-wide';
             label.innerText = device.name;
 
-            // DRAG AND DROP (Si Mode Édition)
             if (isEditMode) {
                 tokenContent.draggable = true;
                 tokenContent.classList.add('cursor-grab');
                 tokenContent.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
-                // Double clic pour retirer du plan
                 tokenContent.ondblclick = () => { delete devicePositions[device.id]; localStorage.setItem('device_positions', JSON.stringify(devicePositions)); renderPlan(); };
             }
 
@@ -333,7 +330,6 @@ function renderPlan() {
             dropzone.appendChild(tokenContainer);
             
         } else if (isEditMode) {
-            // L'appareil n'est pas placé, on l'affiche dans la Sidebar
             const listItem = document.createElement('div');
             listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-xs font-bold text-gray-700 transition-colors";
             listItem.draggable = true;
@@ -413,9 +409,9 @@ function createDeviceCard(device) {
 }
 
 // --- SHABBAT / CRON ---
-async function loadShabbatTimes() { /* Identique à avant */ }
-async function loadDevicesForScheduling() { /* Identique à avant */ }
-async function loadScheduledTasks() { /* Identique à avant */ }
+async function loadShabbatTimes() { /* Identique */ }
+async function loadDevicesForScheduling() { /* Identique */ }
+async function loadScheduledTasks() { /* Identique */ }
 
 window.addEventListener('DOMContentLoaded', () => {
     initPlanLogic();
