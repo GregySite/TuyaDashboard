@@ -8,7 +8,7 @@ let pollingInterval = null;
 
 // --- GESTION DE LA CONNEXION & QR CODE ---
 function checkAuth() {
-    // 1. Vérifie si on arrive depuis un QR Code (URL Parameters)
+    // Vérifie si on arrive depuis un QR Code (URL Parameters)
     const urlParams = new URLSearchParams(window.location.search);
     if(urlParams.has('id') && urlParams.has('secret')) {
         const creds = {
@@ -19,7 +19,6 @@ function checkAuth() {
             city: 'Jerusalem'
         };
         localStorage.setItem('tuya_credentials', JSON.stringify(creds));
-        // Nettoie l'URL pour cacher les secrets !
         window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -34,7 +33,7 @@ function checkAuth() {
         mainApp.classList.remove('hidden');
         loadDevices();
         fetchPlanConfig();
-        startPolling(); // Démarre le temps réel !
+        startPolling(); // Lancement du Smart Polling
     } else {
         loginModal.classList.remove('hidden');
         mainApp.classList.add('hidden');
@@ -51,16 +50,14 @@ function logout() {
 
 function showQRCode() {
     if(!userCredentials) return;
-    // Crée une URL avec les codes
     const link = `${window.location.origin}?id=${userCredentials.accessId}&secret=${userCredentials.accessSecret}&uid=${userCredentials.uid}&region=${userCredentials.region}`;
-    // Génère le QR Code via l'API publique gratuite
     document.getElementById('qr-image').src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(link)}`;
     document.getElementById('qr-modal').classList.remove('hidden');
 }
 
 function closeQRCode() { document.getElementById('qr-modal').classList.add('hidden'); }
 
-// --- API ET TEMPS RÉEL (POLLING) ---
+// --- API ET SMART POLLING (TEMPS RÉEL) ---
 async function apiFetch(endpoint, options = {}) {
     if (!userCredentials) throw new Error("Non connecté");
     const headers = {
@@ -77,9 +74,14 @@ async function apiFetch(endpoint, options = {}) {
 
 function startPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
+    
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && userCredentials) loadDevices();
+    });
+
     pollingInterval = setInterval(async () => {
-        // Ne rafraîchit pas si on est en train d'éditer le plan ou si un popup est ouvert
-        if (isEditMode || !document.getElementById('device-modal').classList.contains('hidden')) return;
+        // Stop API si l'écran est éteint, sur un autre onglet, ou en mode édition
+        if (document.hidden || isEditMode || !document.getElementById('device-modal').classList.contains('hidden')) return; 
         
         try {
             const res = await apiFetch('/devices');
@@ -92,12 +94,11 @@ function startPolling() {
                     devices.forEach(d => document.getElementById('devices-container').appendChild(createDeviceCard(d)));
                 }
             }
-        } catch(e) { console.log("Erreur polling silencieuse", e); }
-    }, 5000); // Mise à jour toutes les 5 secondes !
+        } catch(e) { console.log("Polling error"); }
+    }, 10000); // Mise à jour toutes les 10 secondes
 }
 
 async function loadDevices() {
-    // ... Garder le code précédent de loadDevices() ...
     const container = document.getElementById('devices-container');
     const loading = document.getElementById('loading');
     if (!container || !loading) return;
@@ -185,7 +186,7 @@ function switchTab(tab) {
     if (tab === 'shabbat') { loadShabbatTimes(); loadScheduledTasks(); loadDevicesForScheduling(); }
 }
 
-// --- MODULE PLAN V3 PRO (Correction Glisser-Déposer) ---
+// --- MODULE PLAN V3 PRO ---
 function initPlanLogic() {
     const planContainer = document.getElementById('plan-container');
     if (planContainer && !document.getElementById('fullscreen-btn')) {
@@ -225,9 +226,8 @@ function initPlanLogic() {
         
         try {
             const dataStr = e.dataTransfer.getData('text/plain');
-            // Si on glisse depuis la sidebar, dataStr est juste l'ID. Si on déplace sur le plan, c'est du JSON.
             let deviceId = dataStr;
-            let offset = { x: 20, y: 20 }; // Par défaut : centre de l'icône
+            let offset = { x: 20, y: 20 };
             
             if(dataStr.includes('{')) {
                 const parsed = JSON.parse(dataStr);
@@ -236,7 +236,7 @@ function initPlanLogic() {
             }
             
             const rect = dropzone.getBoundingClientRect();
-            // Précision chirurgicale : on prend la souris, on soustrait l'endroit où on a cliqué sur l'icône, et on recentre
+            // Précision chirurgicale : annule le décalage de la souris
             const exactX = (e.clientX - rect.left) - offset.x + 20; 
             const exactY = (e.clientY - rect.top) - offset.y + 20;
             
@@ -341,14 +341,17 @@ function renderPlan() {
             if (isEditMode) {
                 tokenContent.draggable = true;
                 tokenContent.classList.add('cursor-grab');
-                // LA MAGIE DU CALCUL DU DÉCALAGE
                 tokenContent.ondragstart = (e) => {
                     const rect = tokenContent.getBoundingClientRect();
                     const offsetX = e.clientX - rect.left;
                     const offsetY = e.clientY - rect.top;
                     e.dataTransfer.setData('text/plain', JSON.stringify({id: device.id, ox: offsetX, oy: offsetY}));
                 };
-                tokenContent.ondblclick = () => { delete serverConfig.positions[device.id]; savePlanConfig(); renderPlan(); };
+                tokenContent.ondblclick = () => { 
+                    delete serverConfig.positions[device.id]; 
+                    savePlanConfig(); 
+                    renderPlan(); 
+                };
             }
 
             tokenContainer.appendChild(tokenContent);
@@ -359,7 +362,7 @@ function renderPlan() {
             const listItem = document.createElement('div');
             listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-xs font-bold text-gray-700";
             listItem.draggable = true;
-            listItem.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id); // Simple ID depuis la liste
+            listItem.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
             listItem.innerHTML = `<i class="fas fa-grip-vertical text-gray-300 mr-3"></i> ${device.name}`;
             sidebarList.appendChild(listItem);
         }
@@ -368,13 +371,13 @@ function renderPlan() {
     if (isEditMode && sidebarList.innerHTML === '') sidebarList.innerHTML = '<p class="text-xs text-gray-400 text-center py-4 italic">Tous placés !</p>';
 }
 
-// --- CREATION CARTE & SHABBAT ---
+// --- CREATION CARTE ---
 function createDeviceCard(device) {
-    // (Conserve l'ancien code exact de createDeviceCard ici, il marche très bien)
     const card = document.createElement('div');
     card.className = 'device-card bg-white rounded-xl p-5 shadow border-t-4 border-purple-500 w-full';
     const state = {};
     if (device.status) device.status.forEach(s => { state[s.code] = s.value; });
+    
     let icon = 'fa-plug'; let iconColor = 'text-gray-400';
     if (device.category === 'wsdcg') { icon = 'fa-temperature-half'; iconColor = 'text-orange-500'; } 
     else if (device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud')) {
