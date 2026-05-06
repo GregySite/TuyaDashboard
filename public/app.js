@@ -2,13 +2,27 @@ const API_BASE = window.location.origin + '/api';
 
 let devices = [];
 let userCredentials = null;
-
-// --- VARIABLES DU PLAN (Maintenant synchronisées avec le serveur) ---
 let isEditMode = false;
 let serverConfig = { image: null, positions: {} };
+let pollingInterval = null;
 
-// --- GESTION DE LA CONNEXION ---
+// --- GESTION DE LA CONNEXION & QR CODE ---
 function checkAuth() {
+    // 1. Vérifie si on arrive depuis un QR Code (URL Parameters)
+    const urlParams = new URLSearchParams(window.location.search);
+    if(urlParams.has('id') && urlParams.has('secret')) {
+        const creds = {
+            accessId: urlParams.get('id'),
+            accessSecret: urlParams.get('secret'),
+            uid: urlParams.get('uid'),
+            region: urlParams.get('region') || 'eu',
+            city: 'Jerusalem'
+        };
+        localStorage.setItem('tuya_credentials', JSON.stringify(creds));
+        // Nettoie l'URL pour cacher les secrets !
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     const saved = localStorage.getItem('tuya_credentials');
     const loginModal = document.getElementById('login-modal');
     const mainApp = document.getElementById('main-app');
@@ -19,19 +33,34 @@ function checkAuth() {
         loginModal.classList.add('hidden');
         mainApp.classList.remove('hidden');
         loadDevices();
-        fetchPlanConfig(); // Charge le plan depuis le serveur
+        fetchPlanConfig();
+        startPolling(); // Démarre le temps réel !
     } else {
         loginModal.classList.remove('hidden');
         mainApp.classList.add('hidden');
+        if(pollingInterval) clearInterval(pollingInterval);
     }
 }
 
 function logout() {
     localStorage.removeItem('tuya_credentials');
     userCredentials = null;
+    if(pollingInterval) clearInterval(pollingInterval);
     checkAuth();
 }
 
+function showQRCode() {
+    if(!userCredentials) return;
+    // Crée une URL avec les codes
+    const link = `${window.location.origin}?id=${userCredentials.accessId}&secret=${userCredentials.accessSecret}&uid=${userCredentials.uid}&region=${userCredentials.region}`;
+    // Génère le QR Code via l'API publique gratuite
+    document.getElementById('qr-image').src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(link)}`;
+    document.getElementById('qr-modal').classList.remove('hidden');
+}
+
+function closeQRCode() { document.getElementById('qr-modal').classList.add('hidden'); }
+
+// --- API ET TEMPS RÉEL (POLLING) ---
 async function apiFetch(endpoint, options = {}) {
     if (!userCredentials) throw new Error("Non connecté");
     const headers = {
@@ -46,72 +75,43 @@ async function apiFetch(endpoint, options = {}) {
     return fetch(API_BASE + endpoint, { ...options, headers });
 }
 
-// --- LOGIQUE DU PLAN SERVEUR ---
-async function fetchPlanConfig() {
-    try {
-        const res = await fetch(API_BASE + '/plan-config');
-        serverConfig = await res.json();
-        if(!serverConfig.positions) serverConfig.positions = {};
-        if(!document.getElementById('content-plan').classList.contains('hidden')) renderPlan();
-    } catch (e) { console.error("Erreur chargement plan", e); }
-}
-
-async function savePlanConfig() {
-    try {
-        await fetch(API_BASE + '/plan-config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(serverConfig)
-        });
-    } catch (e) { console.error("Erreur sauvegarde plan", e); }
-}
-
-// --- LOGIQUE D'INTERFACE ---
-function switchTab(tab) {
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-    document.querySelectorAll('[id^="tab-"]').forEach(b => { 
-        b.classList.remove('tab-active'); b.classList.add('tab-inactive'); 
-    });
-    
-    document.getElementById(`content-${tab}`).classList.remove('hidden');
-    const btn = document.getElementById(`tab-${tab}`);
-    btn.classList.remove('tab-inactive'); btn.classList.add('tab-active');
-    
-    if (tab === 'manual') loadDevices();
-    if (tab === 'plan') { fetchPlanConfig(); renderPlan(); }
-    if (tab === 'shabbat') { loadShabbatTimes(); loadScheduledTasks(); loadDevicesForScheduling(); }
+function startPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(async () => {
+        // Ne rafraîchit pas si on est en train d'éditer le plan ou si un popup est ouvert
+        if (isEditMode || !document.getElementById('device-modal').classList.contains('hidden')) return;
+        
+        try {
+            const res = await apiFetch('/devices');
+            const data = await res.json();
+            if (data.success && data.result) {
+                devices = data.result;
+                if(!document.getElementById('content-plan').classList.contains('hidden')) renderPlan();
+                if(!document.getElementById('content-manual').classList.contains('hidden')) {
+                    document.getElementById('devices-container').innerHTML = '';
+                    devices.forEach(d => document.getElementById('devices-container').appendChild(createDeviceCard(d)));
+                }
+            }
+        } catch(e) { console.log("Erreur polling silencieuse", e); }
+    }, 5000); // Mise à jour toutes les 5 secondes !
 }
 
 async function loadDevices() {
+    // ... Garder le code précédent de loadDevices() ...
     const container = document.getElementById('devices-container');
     const loading = document.getElementById('loading');
-    
     if (!container || !loading) return;
-    if (container.innerHTML === '') loading.classList.remove('hidden');
     
     try {
         const response = await apiFetch('/devices');
         const data = await response.json();
-        
         if (data.success && data.result) {
             devices = data.result;
             container.innerHTML = '';
             devices.forEach(d => container.appendChild(createDeviceCard(d)));
-            
             if(!document.getElementById('content-plan').classList.contains('hidden')) renderPlan();
-            
-            const modalContent = document.getElementById('device-modal-content');
-            if(modalContent.firstChild && !document.getElementById('device-modal').classList.contains('hidden')) {
-                const openDeviceId = modalContent.firstChild.getAttribute('data-device-id');
-                const updatedDev = devices.find(d => d.id === openDeviceId);
-                if(updatedDev) {
-                    modalContent.innerHTML = '';
-                    modalContent.appendChild(createDeviceCard(updatedDev));
-                }
-            }
         }
     } catch (e) { console.error(e); } 
-    finally { loading.classList.add('hidden'); }
 }
 
 async function sendCommand(deviceId, code, value) {
@@ -127,7 +127,6 @@ async function sendCommand(deviceId, code, value) {
             method: 'POST', body: JSON.stringify({ commands: [{ code, value }] })
         });
         const data = await res.json();
-        
         if (data.success) {
             const modalContent = document.getElementById('device-modal-content');
             if(modalContent.firstChild && !document.getElementById('device-modal').classList.contains('hidden')) {
@@ -146,26 +145,47 @@ function setCountdown(deviceId) {
     }
 }
 
-// --- POPUP APPUI LONG ---
 function openDeviceModal(device) {
     if(isEditMode) return;
     const modal = document.getElementById('device-modal');
     const content = document.getElementById('device-modal-content');
     content.innerHTML = '';
-    
     const card = createDeviceCard(device);
     card.setAttribute('data-device-id', device.id);
     content.appendChild(card);
-    
     modal.classList.remove('hidden');
 }
 
-function closeDeviceModal() {
-    document.getElementById('device-modal').classList.add('hidden');
+function closeDeviceModal() { document.getElementById('device-modal').classList.add('hidden'); }
+
+// --- LOGIQUE DU PLAN SERVEUR ---
+async function fetchPlanConfig() {
+    try {
+        const res = await fetch(API_BASE + '/plan-config');
+        serverConfig = await res.json();
+        if(!serverConfig.positions) serverConfig.positions = {};
+        if(!document.getElementById('content-plan').classList.contains('hidden')) renderPlan();
+    } catch (e) { console.error(e); }
 }
 
-// --- MODULE LE PLAN V3 ---
+async function savePlanConfig() {
+    try {
+        await fetch(API_BASE + '/plan-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serverConfig) });
+    } catch (e) { console.error(e); }
+}
 
+function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    document.querySelectorAll('[id^="tab-"]').forEach(b => { b.classList.remove('tab-active'); b.classList.add('tab-inactive'); });
+    document.getElementById(`content-${tab}`).classList.remove('hidden');
+    document.getElementById(`tab-${tab}`).classList.remove('tab-inactive'); document.getElementById(`tab-${tab}`).classList.add('tab-active');
+    
+    if (tab === 'manual') loadDevices();
+    if (tab === 'plan') { fetchPlanConfig(); renderPlan(); }
+    if (tab === 'shabbat') { loadShabbatTimes(); loadScheduledTasks(); loadDevicesForScheduling(); }
+}
+
+// --- MODULE PLAN V3 PRO (Correction Glisser-Déposer) ---
 function initPlanLogic() {
     const planContainer = document.getElementById('plan-container');
     if (planContainer && !document.getElementById('fullscreen-btn')) {
@@ -184,11 +204,7 @@ function initPlanLogic() {
         const file = e.target.files[0];
         if(!file) return;
         const reader = new FileReader();
-        reader.onload = (ev) => {
-            serverConfig.image = ev.target.result;
-            savePlanConfig();
-            renderPlan();
-        };
+        reader.onload = (ev) => { serverConfig.image = ev.target.result; savePlanConfig(); renderPlan(); };
         reader.readAsDataURL(file);
     });
 
@@ -205,17 +221,32 @@ function initPlanLogic() {
     dropzone.ondragover = (e) => e.preventDefault();
     dropzone.ondrop = (e) => {
         e.preventDefault();
-        const deviceId = e.dataTransfer.getData('text/plain');
-        if(!deviceId || !isEditMode) return;
-        const rect = dropzone.getBoundingClientRect();
+        if(!isEditMode) return;
         
-        // Placement exact (100% libre)
-        const x = ((e.clientX - rect.left) / rect.width) * 100;
-        const y = ((e.clientY - rect.top) / rect.height) * 100;
-
-        serverConfig.positions[deviceId] = {x, y};
-        savePlanConfig();
-        renderPlan();
+        try {
+            const dataStr = e.dataTransfer.getData('text/plain');
+            // Si on glisse depuis la sidebar, dataStr est juste l'ID. Si on déplace sur le plan, c'est du JSON.
+            let deviceId = dataStr;
+            let offset = { x: 20, y: 20 }; // Par défaut : centre de l'icône
+            
+            if(dataStr.includes('{')) {
+                const parsed = JSON.parse(dataStr);
+                deviceId = parsed.id;
+                offset = { x: parsed.ox, y: parsed.oy };
+            }
+            
+            const rect = dropzone.getBoundingClientRect();
+            // Précision chirurgicale : on prend la souris, on soustrait l'endroit où on a cliqué sur l'icône, et on recentre
+            const exactX = (e.clientX - rect.left) - offset.x + 20; 
+            const exactY = (e.clientY - rect.top) - offset.y + 20;
+            
+            serverConfig.positions[deviceId] = {
+                x: (exactX / rect.width) * 100,
+                y: (exactY / rect.height) * 100
+            };
+            savePlanConfig();
+            renderPlan();
+        } catch(err) { console.error("Erreur drag", err); }
     };
 }
 
@@ -225,11 +256,7 @@ function renderPlan() {
     const dropzone = document.getElementById('plan-dropzone');
     const sidebarList = document.getElementById('unplaced-devices');
     
-    if(serverConfig.image) { 
-        imgEl.src = serverConfig.image; 
-        imgEl.classList.remove('hidden'); 
-        placeholder.classList.add('hidden'); 
-    }
+    if(serverConfig.image) { imgEl.src = serverConfig.image; imgEl.classList.remove('hidden'); placeholder.classList.add('hidden'); }
     
     dropzone.innerHTML = '';
     sidebarList.innerHTML = '';
@@ -237,12 +264,7 @@ function renderPlan() {
     devices.forEach(device => {
         const state = {};
         if (device.status) device.status.forEach(s => { state[s.code] = s.value; });
-        
         const pos = serverConfig.positions[device.id];
-        const isSensor = device.category === 'wsdcg' || ('va_temperature' in state);
-        const isBoiler = device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud');
-        const switchesKeys = Object.keys(state).filter(k => k.startsWith('switch_') && k !== 'switch_led' && typeof state[k] === 'boolean');
-        const mainSwitch = switchesKeys.length > 0 ? switchesKeys[0] : 'switch_1';
         
         if (pos) {
             const tokenContainer = document.createElement('div');
@@ -253,6 +275,11 @@ function renderPlan() {
             const tokenContent = document.createElement('div');
             tokenContent.className = 'select-none transition-transform duration-200';
             
+            const isSensor = device.category === 'wsdcg' || ('va_temperature' in state);
+            const isBoiler = device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud');
+            const switchesKeys = Object.keys(state).filter(k => k.startsWith('switch_') && k !== 'switch_led' && typeof state[k] === 'boolean');
+            const mainSwitch = switchesKeys.length > 0 ? switchesKeys[0] : 'switch_1';
+            
             if (isSensor) {
                 const temp = state.va_temperature ? (state.va_temperature/10).toFixed(1) + '°C' : '--°C';
                 const hum = state.humidity_value ? state.humidity_value + '%' : '';
@@ -261,17 +288,11 @@ function renderPlan() {
                 let pillHtml = '<div class="flex bg-gray-800 rounded-full shadow-lg border-2 border-white overflow-hidden cursor-pointer hover:scale-105">';
                 switchesKeys.forEach((swCode, idx) => {
                     const isOn = state[swCode];
-                    const borderLeft = idx > 0 ? 'border-l border-gray-600' : '';
-                    const bgClass = isOn ? 'bg-yellow-400 text-white' : 'text-gray-300 hover:bg-gray-700';
-                    pillHtml += `<div data-sw="${swCode}" class="switch-part w-8 h-8 flex items-center justify-center font-bold text-xs ${borderLeft} ${bgClass}">${idx + 1}</div>`;
+                    pillHtml += `<div data-sw="${swCode}" class="switch-part w-8 h-8 flex items-center justify-center font-bold text-xs ${idx > 0 ? 'border-l border-gray-600' : ''} ${isOn ? 'bg-yellow-400 text-white' : 'text-gray-300 hover:bg-gray-700'}">${idx + 1}</div>`;
                 });
-                pillHtml += '</div>';
-                tokenContent.innerHTML = pillHtml;
+                tokenContent.innerHTML = pillHtml + '</div>';
             } else {
-                let icon = 'fa-lightbulb';
-                if (isBoiler) icon = 'fa-fire-flame-simple';
-                else if (device.category === 'cz') icon = 'fa-plug';
-                
+                let icon = isBoiler ? 'fa-fire-flame-simple' : (device.category === 'cz' ? 'fa-plug' : 'fa-lightbulb');
                 const isOn = state[mainSwitch] || state.switch_led;
                 tokenContent.innerHTML = `<div class="w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 border-white shadow-lg cursor-pointer transition-all ${isOn ? 'bg-yellow-400 text-white scale-110 shadow-[0_0_15px_rgba(250,204,21,0.8)]' : 'bg-gray-800 text-white opacity-90 hover:bg-gray-700 hover:scale-105'}"><i class="fas ${icon}"></i></div>`;
             }
@@ -284,36 +305,23 @@ function renderPlan() {
                 if(isEditMode) return;
                 isLongPress = false;
                 const touch = e.touches ? e.touches[0] : e;
-                startX = touch.clientX;
-                startY = touch.clientY;
-                pressTimer = setTimeout(() => {
-                    isLongPress = true;
-                    openDeviceModal(device);
-                }, 500);
+                startX = touch.clientX; startY = touch.clientY;
+                pressTimer = setTimeout(() => { isLongPress = true; openDeviceModal(device); }, 500);
             };
 
             const handlePointerUp = (e) => {
                 if(isEditMode) return;
                 clearTimeout(pressTimer);
-                
                 if (!isLongPress) {
                     const touch = e.changedTouches ? e.changedTouches[0] : e;
-                    const diffX = Math.abs(touch.clientX - startX);
-                    const diffY = Math.abs(touch.clientY - startY);
-                    
-                    if(diffX > 10 || diffY > 10) return; // Scroll ignoré
+                    if(Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) return;
 
                     if (switchesKeys.length > 1) {
                         const swPart = e.target.closest('.switch-part');
-                        if (swPart) {
-                            const swCode = swPart.getAttribute('data-sw');
-                            sendCommand(device.id, swCode, !state[swCode]);
-                        }
+                        if (swPart) sendCommand(device.id, swPart.getAttribute('data-sw'), !state[swPart.getAttribute('data-sw')]);
                     } else if (!isSensor) {
                         sendCommand(device.id, mainSwitch, !state[mainSwitch]);
-                    } else {
-                        openDeviceModal(device);
-                    }
+                    } else { openDeviceModal(device); }
                 }
             };
 
@@ -333,12 +341,14 @@ function renderPlan() {
             if (isEditMode) {
                 tokenContent.draggable = true;
                 tokenContent.classList.add('cursor-grab');
-                tokenContent.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
-                tokenContent.ondblclick = () => { 
-                    delete serverConfig.positions[device.id]; 
-                    savePlanConfig(); 
-                    renderPlan(); 
+                // LA MAGIE DU CALCUL DU DÉCALAGE
+                tokenContent.ondragstart = (e) => {
+                    const rect = tokenContent.getBoundingClientRect();
+                    const offsetX = e.clientX - rect.left;
+                    const offsetY = e.clientY - rect.top;
+                    e.dataTransfer.setData('text/plain', JSON.stringify({id: device.id, ox: offsetX, oy: offsetY}));
                 };
+                tokenContent.ondblclick = () => { delete serverConfig.positions[device.id]; savePlanConfig(); renderPlan(); };
             }
 
             tokenContainer.appendChild(tokenContent);
@@ -347,46 +357,33 @@ function renderPlan() {
             
         } else if (isEditMode) {
             const listItem = document.createElement('div');
-            listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-xs font-bold text-gray-700 transition-colors";
+            listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-xs font-bold text-gray-700";
             listItem.draggable = true;
-            listItem.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
+            listItem.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id); // Simple ID depuis la liste
             listItem.innerHTML = `<i class="fas fa-grip-vertical text-gray-300 mr-3"></i> ${device.name}`;
             sidebarList.appendChild(listItem);
         }
     });
 
-    if (isEditMode && sidebarList.innerHTML === '') {
-        sidebarList.innerHTML = '<p class="text-xs text-gray-400 text-center py-4 italic">Tous les appareils sont placés !</p>';
-    }
+    if (isEditMode && sidebarList.innerHTML === '') sidebarList.innerHTML = '<p class="text-xs text-gray-400 text-center py-4 italic">Tous placés !</p>';
 }
 
-// --- MOTEUR DE CARTE ---
+// --- CREATION CARTE & SHABBAT ---
 function createDeviceCard(device) {
+    // (Conserve l'ancien code exact de createDeviceCard ici, il marche très bien)
     const card = document.createElement('div');
     card.className = 'device-card bg-white rounded-xl p-5 shadow border-t-4 border-purple-500 w-full';
-    
     const state = {};
     if (device.status) device.status.forEach(s => { state[s.code] = s.value; });
-    
     let icon = 'fa-plug'; let iconColor = 'text-gray-400';
     if (device.category === 'wsdcg') { icon = 'fa-temperature-half'; iconColor = 'text-orange-500'; } 
     else if (device.product_name?.toLowerCase().includes('boiler') || device.name.toLowerCase().includes('doud')) {
         icon = 'fa-fire-flame-simple'; iconColor = state.switch_1 ? 'text-red-500' : 'text-gray-400';
     } else if (device.category === 'dj' || device.name.toLowerCase().includes('lumi') || device.name.toLowerCase().includes('lamp')) {
         icon = 'fa-lightbulb'; iconColor = (state.switch_1 || state.switch_led) ? 'text-yellow-400' : 'text-gray-400';
-    } else {
-        iconColor = state.switch_1 ? 'text-green-500' : 'text-gray-400';
-    }
+    } else { iconColor = state.switch_1 ? 'text-green-500' : 'text-gray-400'; }
 
-    let html = `
-    <div class="flex items-start justify-between mb-4">
-        <div class="flex-1">
-            <div class="flex items-center mb-1"><i class="fas ${icon} text-2xl ${iconColor} mr-3"></i><h3 class="font-bold text-gray-800 leading-tight text-base">${device.name}</h3></div>
-            <p class="text-[10px] text-gray-400 ml-9 uppercase tracking-wider">${device.product_name || 'Tuya Device'}</p>
-        </div>
-        <div class="h-2 w-2 rounded-full ${device.online ? 'bg-green-500' : 'bg-red-500'} mt-1"></div>
-    </div>
-    <div class="space-y-3">`;
+    let html = `<div class="flex items-start justify-between mb-4"><div class="flex-1"><div class="flex items-center mb-1"><i class="fas ${icon} text-2xl ${iconColor} mr-3"></i><h3 class="font-bold text-gray-800 leading-tight text-base">${device.name}</h3></div><p class="text-[10px] text-gray-400 ml-9 uppercase tracking-wider">${device.product_name || 'Tuya Device'}</p></div><div class="h-2 w-2 rounded-full ${device.online ? 'bg-green-500' : 'bg-red-500'} mt-1"></div></div><div class="space-y-3">`;
 
     ['switch_1', 'switch_2', 'switch_led'].forEach(code => {
         if (code in state) {
@@ -396,38 +393,17 @@ function createDeviceCard(device) {
         }
     });
 
-    if ('va_temperature' in state) {
-        html += `<div class="grid grid-cols-2 gap-2"><div class="bg-orange-50 text-orange-700 p-2 rounded text-center"><div class="text-xs">Temp</div><div class="font-bold">${(state.va_temperature/10).toFixed(1)}°C</div></div><div class="bg-blue-50 text-blue-700 p-2 rounded text-center"><div class="text-xs">Hum</div><div class="font-bold">${state.humidity_value}%</div></div></div>`;
-    }
-
-    if ('cur_power' in state) {
-        html += `<div class="flex justify-between items-center bg-gray-900 text-white p-2 rounded-lg text-xs font-mono"><span class="text-yellow-400 font-bold">${(state.cur_power/10).toFixed(1)} W</span><span>${(state.cur_voltage/10).toFixed(0)}V</span></div>`;
-    }
-
-    if ('countdown_1' in state) {
-        html += `<div class="mt-2 pt-2 border-t border-gray-100">
-            <div class="flex gap-1">
-                <select id="timer-${device.id}" class="flex-1 bg-gray-100 text-[10px] rounded p-1 border-none">
-                    <option value="0">Désactiver</option>
-                    <option value="900" ${state.countdown_1 === 900 ? 'selected' : ''}>15m</option>
-                    <option value="1800" ${state.countdown_1 === 1800 ? 'selected' : ''}>30m</option>
-                    <option value="3600" ${state.countdown_1 === 3600 ? 'selected' : ''}>1h</option>
-                </select>
-                <button onclick="setCountdown('${device.id}')" class="bg-purple-600 text-white px-2 py-1 rounded text-[10px] font-bold">OK</button>
-            </div>
-            ${state.countdown_1 > 0 ? `<p class="text-[9px] text-green-600 mt-1 font-bold"><i class="fas fa-clock mr-1"></i> Fin dans ~${Math.round(state.countdown_1/60)} min</p>` : ''}
-        </div>`;
-    }
-
+    if ('va_temperature' in state) html += `<div class="grid grid-cols-2 gap-2"><div class="bg-orange-50 text-orange-700 p-2 rounded text-center"><div class="text-xs">Temp</div><div class="font-bold">${(state.va_temperature/10).toFixed(1)}°C</div></div><div class="bg-blue-50 text-blue-700 p-2 rounded text-center"><div class="text-xs">Hum</div><div class="font-bold">${state.humidity_value}%</div></div></div>`;
+    if ('cur_power' in state) html += `<div class="flex justify-between items-center bg-gray-900 text-white p-2 rounded-lg text-xs font-mono"><span class="text-yellow-400 font-bold">${(state.cur_power/10).toFixed(1)} W</span><span>${(state.cur_voltage/10).toFixed(0)}V</span></div>`;
+    if ('countdown_1' in state) html += `<div class="mt-2 pt-2 border-t border-gray-100"><div class="flex gap-1"><select id="timer-${device.id}" class="flex-1 bg-gray-100 text-[10px] rounded p-1 border-none"><option value="0">Désactiver</option><option value="900" ${state.countdown_1 === 900 ? 'selected' : ''}>15m</option><option value="1800" ${state.countdown_1 === 1800 ? 'selected' : ''}>30m</option><option value="3600" ${state.countdown_1 === 3600 ? 'selected' : ''}>1h</option></select><button onclick="setCountdown('${device.id}')" class="bg-purple-600 text-white px-2 py-1 rounded text-[10px] font-bold">OK</button></div>${state.countdown_1 > 0 ? `<p class="text-[9px] text-green-600 mt-1 font-bold"><i class="fas fa-clock mr-1"></i> Fin dans ~${Math.round(state.countdown_1/60)} min</p>` : ''}</div>`;
     html += `</div>`;
     card.innerHTML = html;
     return card;
 }
 
-// --- SHABBAT ---
-async function loadShabbatTimes() { /* Identique */ }
-async function loadDevicesForScheduling() { /* Identique */ }
-async function loadScheduledTasks() { /* Identique */ }
+async function loadShabbatTimes() { /* Inchangé */ }
+async function loadDevicesForScheduling() { /* Inchangé */ }
+async function loadScheduledTasks() { /* Inchangé */ }
 
 window.addEventListener('DOMContentLoaded', () => {
     initPlanLogic();
