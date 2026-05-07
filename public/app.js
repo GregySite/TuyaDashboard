@@ -15,15 +15,18 @@ function applyFitMode() {
     if(!img || !container) return;
 
     if (isFitMode) {
+        // MODE AJUSTÉ (Vue globale)
         img.style.maxWidth = '100%';
         img.style.maxHeight = (container.clientHeight - 20) + 'px'; 
         img.style.width = 'auto';
         img.style.height = 'auto';
         if(icon) icon.className = 'fas fa-search-plus';
     } else {
+        // MODE ZOOM (Doux et équilibré)
         img.style.maxWidth = 'none';
         img.style.maxHeight = 'none';
-        img.style.width = 'max(150vw, 1000px)';
+        // Sur PC, prend la largeur naturelle. Sur mobile, force une belle largeur.
+        img.style.width = 'max(100%, 800px)'; 
         img.style.height = 'auto';
         if(icon) icon.className = 'fas fa-compress';
     }
