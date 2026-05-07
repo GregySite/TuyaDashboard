@@ -6,7 +6,7 @@ let isEditMode = false;
 let serverConfig = { image: null, positions: {} };
 let pollingInterval = null;
 let isFitMode = true;
-let lastTapTime = 0; // ANTI DOUBLE-CLIC MOBILE
+let lastTapTime = 0; 
 
 function applyFitMode() {
     const container = document.getElementById('plan-scroll-area');
@@ -15,17 +15,14 @@ function applyFitMode() {
     if(!img || !container) return;
 
     if (isFitMode) {
-        // MODE AJUSTÉ (Vue globale)
         img.style.maxWidth = '100%';
         img.style.maxHeight = (container.clientHeight - 20) + 'px'; 
         img.style.width = 'auto';
         img.style.height = 'auto';
         if(icon) icon.className = 'fas fa-search-plus';
     } else {
-        // MODE ZOOM (Doux et équilibré)
         img.style.maxWidth = 'none';
         img.style.maxHeight = 'none';
-        // Sur PC, prend la largeur naturelle. Sur mobile, force une belle largeur.
         img.style.width = 'max(100%, 800px)'; 
         img.style.height = 'auto';
         if(icon) icon.className = 'fas fa-compress';
@@ -199,7 +196,11 @@ async function fetchPlanConfig() {
 
 async function savePlanConfig() {
     try {
-        await fetch(API_BASE + '/plan-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(serverConfig) });
+        await fetch(API_BASE + '/plan-config', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(serverConfig) 
+        });
     } catch (e) { console.error(e); }
 }
 
@@ -229,8 +230,64 @@ function initPlanLogic() {
         uploadBtn.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if(!file) return;
+            
+            // 1. Validation de l'image (Front-end)
+            if (!file.type.match(/image.*/)) {
+                uploadBtn.value = ""; 
+                return alert("Veuillez sélectionner une image valide (JPG, PNG).");
+            }
+
+            const maxSizeMB = 2;
+            if (file.size > maxSizeMB * 1024 * 1024) {
+                uploadBtn.value = ""; 
+                return alert(`L'image est trop lourde (${(file.size / 1024 / 1024).toFixed(1)} Mo). Limite : ${maxSizeMB} Mo.`);
+            }
+
+            const label = uploadBtn.parentElement;
+            const originalHtml = label.innerHTML;
+            label.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Traitement...';
+
             const reader = new FileReader();
-            reader.onload = (ev) => { serverConfig.image = ev.target.result; savePlanConfig(); renderPlan(); };
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                    const maxDim = 1500;
+                    if (img.width > maxDim || img.height > maxDim) {
+                        label.innerHTML = originalHtml;
+                        uploadBtn.value = ""; 
+                        return alert(`Image trop grande (${img.width}x${img.height}px). Limite : ${maxDim}x${maxDim}px.`);
+                    }
+
+                    // 2. La Moulinette (Canvas & Compression JPEG)
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    let quality = 0.9;
+                    let compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+
+                    while (compressedBase64.length > 95000 && quality > 0.1) {
+                        quality -= 0.1;
+                        compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+                    }
+
+                    if (compressedBase64.length > 95000) {
+                        label.innerHTML = originalHtml;
+                        uploadBtn.value = ""; 
+                        return alert(`Image trop complexe. Compressez-la avec TinyJPG.com d'abord.`);
+                    }
+
+                    serverConfig.image = compressedBase64;
+                    savePlanConfig();
+                    renderPlan();
+                    
+                    label.innerHTML = originalHtml;
+                    uploadBtn.value = ""; 
+                };
+                img.src = ev.target.result;
+            };
             reader.readAsDataURL(file);
         });
     }
@@ -339,7 +396,6 @@ function renderPlan() {
 
             const handlePointerDown = (e) => {
                 if(isEditMode) return;
-                // ANTI GHOST-CLICK (Ignore les clics de souris qui arrivent juste après un appui tactile)
                 if (e.type === 'mousedown' && Date.now() - lastTapTime < 400) return;
 
                 isLongPress = false;
