@@ -5,9 +5,8 @@ let userCredentials = null;
 let isEditMode = false;
 let serverConfig = { image: null, positions: {} };
 let pollingInterval = null;
-
-// --- GESTION DU ZOOM INTELLIGENT (CALCUL AU PIXEL PRÈS) ---
 let isFitMode = true;
+let lastTapTime = 0; // ANTI DOUBLE-CLIC MOBILE
 
 function applyFitMode() {
     const container = document.getElementById('plan-scroll-area');
@@ -16,14 +15,12 @@ function applyFitMode() {
     if(!img || !container) return;
 
     if (isFitMode) {
-        // MODE AJUSTÉ : On force l'image à ne pas dépasser la boîte (ni en largeur, ni en hauteur)
         img.style.maxWidth = '100%';
-        img.style.maxHeight = (container.clientHeight - 20) + 'px'; // -20px pour la petite marge
+        img.style.maxHeight = (container.clientHeight - 20) + 'px'; 
         img.style.width = 'auto';
         img.style.height = 'auto';
         if(icon) icon.className = 'fas fa-search-plus';
     } else {
-        // MODE ZOOM : L'image prend toute sa taille, on peut scroller avec le doigt
         img.style.maxWidth = 'none';
         img.style.maxHeight = 'none';
         img.style.width = 'max(150vw, 1000px)';
@@ -37,14 +34,12 @@ function toggleFitMode() {
     applyFitMode();
 }
 
-// Le secret : on recalcule la taille de l'image dès qu'on tourne l'écran ou qu'on passe en Fullscreen !
 window.addEventListener('resize', () => {
     if (!document.getElementById('content-plan').classList.contains('hidden')) {
-        setTimeout(applyFitMode, 100); // Petit délai pour laisser le temps au navigateur de changer de taille
+        setTimeout(applyFitMode, 100); 
     }
 });
 
-// --- GESTION DE LA CONNEXION & QR CODE ---
 function checkAuth() {
     const urlParams = new URLSearchParams(window.location.search);
     if(urlParams.has('id') && urlParams.has('secret')) {
@@ -110,14 +105,11 @@ async function apiFetch(endpoint, options = {}) {
 
 function startPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
-    
     document.addEventListener("visibilitychange", () => {
         if (!document.hidden && userCredentials) loadDevices();
     });
-
     pollingInterval = setInterval(async () => {
         if (document.hidden || isEditMode || !document.getElementById('device-modal').classList.contains('hidden')) return; 
-        
         try {
             const res = await apiFetch('/devices');
             const data = await res.json();
@@ -137,7 +129,6 @@ async function loadDevices() {
     const container = document.getElementById('devices-container');
     const loading = document.getElementById('loading');
     if (!container || !loading) return;
-    
     try {
         const response = await apiFetch('/devices');
         const data = await response.json();
@@ -296,7 +287,7 @@ function renderPlan() {
         wrapper.classList.remove('hidden'); 
         if(fitBtn) fitBtn.classList.remove('hidden');
         if(placeholder) placeholder.classList.add('hidden'); 
-        applyFitMode(); // Force la taille de l'image dès son affichage !
+        applyFitMode(); 
     }
     
     dropzone.innerHTML = '';
@@ -345,6 +336,9 @@ function renderPlan() {
 
             const handlePointerDown = (e) => {
                 if(isEditMode) return;
+                // ANTI GHOST-CLICK (Ignore les clics de souris qui arrivent juste après un appui tactile)
+                if (e.type === 'mousedown' && Date.now() - lastTapTime < 400) return;
+
                 isLongPress = false;
                 const touch = e.touches ? e.touches[0] : e;
                 startX = touch.clientX; startY = touch.clientY;
@@ -354,6 +348,10 @@ function renderPlan() {
             const handlePointerUp = (e) => {
                 if(isEditMode) return;
                 clearTimeout(pressTimer);
+                
+                if (e.type === 'mouseup' && Date.now() - lastTapTime < 400) return;
+                if (e.type === 'touchend') lastTapTime = Date.now();
+
                 if (!isLongPress) {
                     const touch = e.changedTouches ? e.changedTouches[0] : e;
                     if(Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) return;
