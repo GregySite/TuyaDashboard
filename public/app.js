@@ -6,6 +6,30 @@ let isEditMode = false;
 let serverConfig = { image: null, positions: {} };
 let pollingInterval = null;
 
+// --- GESTION DU ZOOM DU PLAN ---
+let isFitMode = true; // Par défaut, l'image tient entièrement dans l'écran
+
+function toggleFitMode() {
+    isFitMode = !isFitMode;
+    const img = document.getElementById('plan-image');
+    const icon = document.getElementById('fit-btn-icon');
+    
+    if (isFitMode) {
+        // Mode Ajusté
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '100%';
+        img.style.width = 'auto';
+        icon.className = 'fas fa-search-plus'; // Affiche la loupe +
+    } else {
+        // Mode Zoom/Libre (Super pour les mobiles)
+        img.style.maxWidth = 'none';
+        img.style.maxHeight = 'none';
+        img.style.width = 'max(150vw, 1000px)'; // Force un bon zoom
+        icon.className = 'fas fa-compress'; // Affiche les flèches vers l'intérieur
+    }
+}
+
+// --- GESTION DE LA CONNEXION & QR CODE ---
 function checkAuth() {
     const urlParams = new URLSearchParams(window.location.search);
     if(urlParams.has('id') && urlParams.has('secret')) {
@@ -183,17 +207,12 @@ function switchTab(tab) {
 
 function initPlanLogic() {
     const planContainer = document.getElementById('plan-container');
-    if (planContainer && !document.getElementById('fullscreen-btn')) {
-        const fsBtn = document.createElement('button');
-        fsBtn.id = 'fullscreen-btn';
-        fsBtn.className = "absolute top-2 right-2 bg-gray-900 bg-opacity-60 text-white p-2 rounded-lg transition-all";
-        fsBtn.style.zIndex = "20";
-        fsBtn.innerHTML = '<i class="fas fa-expand"></i>';
+    const fsBtn = document.getElementById('fullscreen-btn');
+    if (planContainer && fsBtn) {
         fsBtn.onclick = () => {
             if (!document.fullscreenElement) planContainer.requestFullscreen();
             else document.exitFullscreen();
         };
-        planContainer.appendChild(fsBtn);
     }
 
     const uploadBtn = document.getElementById('upload-plan');
@@ -252,12 +271,15 @@ function renderPlan() {
     const placeholder = document.getElementById('plan-placeholder');
     const dropzone = document.getElementById('plan-dropzone');
     const sidebarList = document.getElementById('unplaced-devices');
+    const fitBtn = document.getElementById('fit-btn');
+    const wrapper = document.getElementById('plan-wrapper');
     
     if (!dropzone || !sidebarList) return;
 
     if(serverConfig.image) { 
         imgEl.src = serverConfig.image; 
-        imgEl.classList.remove('hidden'); 
+        wrapper.classList.remove('hidden'); 
+        if(fitBtn) fitBtn.classList.remove('hidden');
         if(placeholder) placeholder.classList.add('hidden'); 
     }
     
