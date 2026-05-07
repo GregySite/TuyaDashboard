@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tuya Dashboard V3 Pro</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
@@ -20,7 +20,7 @@
     </style>
 </head>
 <body class="p-4 md:p-8">
-    <div id="login-modal" class="fixed inset-0 bg-gray-900 bg-opacity-90 z-50 flex items-center justify-center hidden">
+    <div id="login-modal" class="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center hidden" style="z-index: 50;">
         <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full m-4">
             <h2 class="text-3xl font-bold text-center text-purple-600 mb-2"><i class="fas fa-home mr-2"></i>Connexion</h2>
             <p class="text-gray-500 text-center mb-6 text-sm">Entrez vos identifiants Tuya IoT Platform.</p>
@@ -46,6 +46,12 @@
             </div>
         </div>
         
+        <div class="flex justify-center mb-4">
+            <button onclick="loadDevices()" class="bg-blue-500 hover:bg-blue-600 text-white px-8 py-3 rounded-full font-bold shadow-lg transition-all flex items-center">
+                <i class="fas fa-sync-alt mr-2"></i>Actualiser la maison
+            </button>
+        </div>
+
         <div class="flex justify-center mb-6 space-x-2 flex-wrap gap-y-2">
             <button onclick="switchTab('plan')" id="tab-plan" class="tab-active px-6 py-3 rounded-lg font-semibold transition-all"><i class="fas fa-map-marked-alt mr-2"></i>Le Plan</button>
             <button onclick="switchTab('manual')" id="tab-manual" class="tab-inactive px-6 py-3 rounded-lg font-semibold transition-all"><i class="fas fa-list mr-2"></i>Liste</button>
@@ -70,11 +76,11 @@
                 <div class="flex flex-col md:flex-row gap-6">
                     <div id="plan-sidebar" class="w-full md:w-64 bg-gray-50 rounded-xl p-4 border-2 border-dashed border-gray-300 hidden">
                         <h3 class="font-bold text-gray-600 mb-3 text-xs uppercase tracking-wider">Appareils à placer</h3>
-                        <p class="text-[10px] text-gray-400 mb-4">Glissez sur le plan. Double-cliquez sur le plan pour retirer.</p>
-                        <div id="unplaced-devices" class="space-y-2 max-h-[500px] overflow-y-auto pr-2"></div>
+                        <p class="text-gray-400 mb-4" style="font-size: 10px;">Glissez sur le plan. Double-cliquez sur le plan pour retirer.</p>
+                        <div id="unplaced-devices" class="space-y-2 overflow-y-auto pr-2" style="max-height: 500px;"></div>
                     </div>
                     
-                    <div id="plan-container" class="flex-1 relative bg-gray-100 rounded-xl border border-gray-200 overflow-auto touch-pan-x touch-pan-y min-h-[500px] flex items-center justify-center">
+                    <div id="plan-container" class="flex-1 relative bg-gray-100 rounded-xl border border-gray-200 overflow-auto flex items-center justify-center" style="min-height: 500px;">
                         <div id="plan-placeholder" class="text-center text-gray-400 pointer-events-none">
                             <i class="fas fa-image text-5xl mb-3 block opacity-50"></i>
                             <p>Importez l'image de votre plan pour commencer</p>
@@ -82,9 +88,9 @@
                         <img id="plan-image" src="" class="w-full h-auto hidden select-none" alt="Plan">
                         <div id="plan-dropzone" class="absolute inset-0"></div>
                         
-                        <div id="device-modal" class="absolute inset-0 bg-gray-900 bg-opacity-75 z-[60] flex items-center justify-center hidden" onclick="closeDeviceModal()">
+                        <div id="device-modal" class="absolute inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center hidden" style="z-index: 60;" onclick="closeDeviceModal()">
                             <div class="relative w-full max-w-sm m-4" onclick="event.stopPropagation()">
-                                <button onclick="closeDeviceModal()" class="absolute -top-3 -right-3 bg-red-500 text-white w-8 h-8 rounded-full font-bold shadow-lg z-10 hover:bg-red-600"><i class="fas fa-times"></i></button>
+                                <button onclick="closeDeviceModal()" class="absolute -top-3 -right-3 bg-red-500 text-white w-8 h-8 rounded-full font-bold shadow-lg hover:bg-red-600" style="z-index: 10;"><i class="fas fa-times"></i></button>
                                 <div id="device-modal-content"></div>
                             </div>
                         </div>
@@ -96,10 +102,7 @@
 
         <div id="content-manual" class="tab-content hidden">
             <div class="bg-white rounded-xl shadow-2xl p-6 mb-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-lightbulb text-yellow-500 mr-2"></i>Vue Détaillée</h2>
-                    <button onclick="loadDevices()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"><i class="fas fa-sync-alt mr-2"></i>Actualiser</button>
-                </div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-4"><i class="fas fa-list text-yellow-500 mr-2"></i>Vue Détaillée</h2>
                 <div id="loading" class="text-center py-12 hidden"><i class="fas fa-spinner fa-spin text-4xl text-purple-600"></i><p class="text-gray-600 mt-4">Connexion...</p></div>
                 <div id="devices-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
             </div>
@@ -129,7 +132,7 @@
         </div>
     </div>
 
-    <div id="qr-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 z-[70] flex items-center justify-center hidden" onclick="closeQRCode()">
+    <div id="qr-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center hidden" style="z-index: 70;" onclick="closeQRCode()">
         <div class="bg-white rounded-xl shadow-2xl p-6 m-4 max-w-sm w-full text-center" onclick="event.stopPropagation()">
             <h3 class="text-xl font-bold text-gray-800 mb-2"><i class="fas fa-mobile-alt mr-2"></i>Connexion Rapide</h3>
             <p class="text-xs text-gray-500 mb-4">Scannez ce QR Code avec un autre appareil (Tablette, Mobile) pour vous y connecter instantanément.</p>
