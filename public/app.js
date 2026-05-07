@@ -6,28 +6,43 @@ let isEditMode = false;
 let serverConfig = { image: null, positions: {} };
 let pollingInterval = null;
 
-// --- GESTION DU ZOOM DU PLAN ---
-let isFitMode = true; // Par défaut, l'image tient entièrement dans l'écran
+// --- GESTION DU ZOOM INTELLIGENT (CALCUL AU PIXEL PRÈS) ---
+let isFitMode = true;
+
+function applyFitMode() {
+    const container = document.getElementById('plan-scroll-area');
+    const img = document.getElementById('plan-image');
+    const icon = document.getElementById('fit-btn-icon');
+    if(!img || !container) return;
+
+    if (isFitMode) {
+        // MODE AJUSTÉ : On force l'image à ne pas dépasser la boîte (ni en largeur, ni en hauteur)
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = (container.clientHeight - 20) + 'px'; // -20px pour la petite marge
+        img.style.width = 'auto';
+        img.style.height = 'auto';
+        if(icon) icon.className = 'fas fa-search-plus';
+    } else {
+        // MODE ZOOM : L'image prend toute sa taille, on peut scroller avec le doigt
+        img.style.maxWidth = 'none';
+        img.style.maxHeight = 'none';
+        img.style.width = 'max(150vw, 1000px)';
+        img.style.height = 'auto';
+        if(icon) icon.className = 'fas fa-compress';
+    }
+}
 
 function toggleFitMode() {
     isFitMode = !isFitMode;
-    const img = document.getElementById('plan-image');
-    const icon = document.getElementById('fit-btn-icon');
-    
-    if (isFitMode) {
-        // Mode Ajusté
-        img.style.maxWidth = '100%';
-        img.style.maxHeight = '100%';
-        img.style.width = 'auto';
-        icon.className = 'fas fa-search-plus'; // Affiche la loupe +
-    } else {
-        // Mode Zoom/Libre (Super pour les mobiles)
-        img.style.maxWidth = 'none';
-        img.style.maxHeight = 'none';
-        img.style.width = 'max(150vw, 1000px)'; // Force un bon zoom
-        icon.className = 'fas fa-compress'; // Affiche les flèches vers l'intérieur
-    }
+    applyFitMode();
 }
+
+// Le secret : on recalcule la taille de l'image dès qu'on tourne l'écran ou qu'on passe en Fullscreen !
+window.addEventListener('resize', () => {
+    if (!document.getElementById('content-plan').classList.contains('hidden')) {
+        setTimeout(applyFitMode, 100); // Petit délai pour laisser le temps au navigateur de changer de taille
+    }
+});
 
 // --- GESTION DE LA CONNEXION & QR CODE ---
 function checkAuth() {
@@ -281,6 +296,7 @@ function renderPlan() {
         wrapper.classList.remove('hidden'); 
         if(fitBtn) fitBtn.classList.remove('hidden');
         if(placeholder) placeholder.classList.add('hidden'); 
+        applyFitMode(); // Force la taille de l'image dès son affichage !
     }
     
     dropzone.innerHTML = '';
