@@ -6,7 +6,6 @@ let isEditMode = false;
 let serverConfig = { image: null, positions: {} };
 let pollingInterval = null;
 
-// --- GESTION DE LA CONNEXION & QR CODE ---
 function checkAuth() {
     const urlParams = new URLSearchParams(window.location.search);
     if(urlParams.has('id') && urlParams.has('secret')) {
@@ -56,7 +55,6 @@ function showQRCode() {
 
 function closeQRCode() { document.getElementById('qr-modal').classList.add('hidden'); }
 
-// --- API ET SMART POLLING (TEMPS RÉEL) ---
 async function apiFetch(endpoint, options = {}) {
     if (!userCredentials) throw new Error("Non connecté");
     const headers = {
@@ -157,7 +155,6 @@ function openDeviceModal(device) {
 
 function closeDeviceModal() { document.getElementById('device-modal').classList.add('hidden'); }
 
-// --- LOGIQUE DU PLAN SERVEUR ---
 async function fetchPlanConfig() {
     try {
         const res = await fetch(API_BASE + '/plan-config');
@@ -184,13 +181,13 @@ function switchTab(tab) {
     if (tab === 'shabbat') { loadShabbatTimes(); loadScheduledTasks(); loadDevicesForScheduling(); }
 }
 
-// --- MODULE PLAN V3 PRO ---
 function initPlanLogic() {
     const planContainer = document.getElementById('plan-container');
     if (planContainer && !document.getElementById('fullscreen-btn')) {
         const fsBtn = document.createElement('button');
         fsBtn.id = 'fullscreen-btn';
-        fsBtn.className = "absolute top-2 right-2 bg-gray-900 bg-opacity-60 text-white p-2 rounded-lg z-20 hover:bg-opacity-100 transition-all";
+        fsBtn.className = "absolute top-2 right-2 bg-gray-900 bg-opacity-60 text-white p-2 rounded-lg transition-all";
+        fsBtn.style.zIndex = "20";
         fsBtn.innerHTML = '<i class="fas fa-expand"></i>';
         fsBtn.onclick = () => {
             if (!document.fullscreenElement) planContainer.requestFullscreen();
@@ -216,7 +213,7 @@ function initPlanLogic() {
             isEditMode = !isEditMode;
             document.getElementById('plan-sidebar').classList.toggle('hidden', !isEditMode);
             editBtn.innerHTML = isEditMode ? '<i class="fas fa-check mr-2"></i>Terminer Édition' : '<i class="fas fa-tools mr-2"></i>Mode Édition';
-            editBtn.className = isEditMode ? "bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm" : "bg-gray-200 text-gray-700 hover:bg-gray-300 px-4 py-2 rounded-lg font-bold text-sm";
+            editBtn.className = isEditMode ? "bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm" : "bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold text-sm";
             renderPlan();
         });
     }
@@ -227,7 +224,6 @@ function initPlanLogic() {
         dropzone.ondrop = (e) => {
             e.preventDefault();
             if(!isEditMode) return;
-            
             try {
                 const dataStr = e.dataTransfer.getData('text/plain');
                 let deviceId = dataStr;
@@ -243,10 +239,7 @@ function initPlanLogic() {
                 const exactX = (e.clientX - rect.left) - offset.x + 20; 
                 const exactY = (e.clientY - rect.top) - offset.y + 20;
                 
-                serverConfig.positions[deviceId] = {
-                    x: (exactX / rect.width) * 100,
-                    y: (exactY / rect.height) * 100
-                };
+                serverConfig.positions[deviceId] = { x: (exactX / rect.width) * 100, y: (exactY / rect.height) * 100 };
                 savePlanConfig();
                 renderPlan();
             } catch(err) { console.error("Erreur drag", err); }
@@ -293,9 +286,9 @@ function renderPlan() {
             if (isSensor) {
                 const temp = state.va_temperature ? (state.va_temperature/10).toFixed(1) + '°C' : '--°C';
                 const hum = state.humidity_value ? state.humidity_value + '%' : '';
-                tokenContent.innerHTML = `<div class="bg-white text-gray-800 px-2 py-1 rounded shadow-lg border-2 border-orange-400 text-xs font-bold flex items-center whitespace-nowrap cursor-pointer hover:scale-105"><i class="fas fa-thermometer-half text-orange-500 mr-1"></i> ${temp} ${hum ? `<span class="mx-1 text-gray-300">|</span><i class="fas fa-droplet text-blue-500 mr-1"></i> ${hum}` : ''}</div>`;
+                tokenContent.innerHTML = `<div class="bg-white text-gray-800 px-2 py-1 rounded shadow-lg border-2 border-orange-400 font-bold flex items-center whitespace-nowrap cursor-pointer" style="font-size: 12px;"><i class="fas fa-thermometer-half text-orange-500 mr-1"></i> ${temp} ${hum ? `<span class="mx-1 text-gray-300">|</span><i class="fas fa-droplet text-blue-500 mr-1"></i> ${hum}` : ''}</div>`;
             } else if (switchesKeys.length > 1) {
-                let pillHtml = '<div class="flex bg-gray-800 rounded-full shadow-lg border-2 border-white overflow-hidden cursor-pointer hover:scale-105">';
+                let pillHtml = '<div class="flex bg-gray-800 rounded-full shadow-lg border-2 border-white overflow-hidden cursor-pointer">';
                 switchesKeys.forEach((swCode, idx) => {
                     const isOn = state[swCode];
                     pillHtml += `<div data-sw="${swCode}" class="switch-part w-8 h-8 flex items-center justify-center font-bold text-xs ${idx > 0 ? 'border-l border-gray-600' : ''} ${isOn ? 'bg-yellow-400 text-white' : 'text-gray-300 hover:bg-gray-700'}">${idx + 1}</div>`;
@@ -304,7 +297,8 @@ function renderPlan() {
             } else {
                 let icon = isBoiler ? 'fa-fire-flame-simple' : (device.category === 'cz' ? 'fa-plug' : 'fa-lightbulb');
                 const isOn = state[mainSwitch] || state.switch_led;
-                tokenContent.innerHTML = `<div class="w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 border-white shadow-lg cursor-pointer transition-all ${isOn ? 'bg-yellow-400 text-white scale-110 shadow-[0_0_15px_rgba(250,204,21,0.8)]' : 'bg-gray-800 text-white opacity-90 hover:bg-gray-700 hover:scale-105'}"><i class="fas ${icon}"></i></div>`;
+                const activeShadow = isOn ? 'box-shadow: 0 0 15px rgba(250,204,21,0.8); transform: scale(1.1);' : '';
+                tokenContent.innerHTML = `<div class="w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 border-white shadow-lg cursor-pointer transition-all ${isOn ? 'bg-yellow-400 text-white' : 'bg-gray-800 text-white'}" style="opacity: 0.9; ${activeShadow}"><i class="fas ${icon}"></i></div>`;
             }
 
             let pressTimer;
@@ -341,11 +335,11 @@ function renderPlan() {
                 tokenContent.addEventListener('mouseup', handlePointerUp);
                 tokenContent.addEventListener('touchend', handlePointerUp);
                 tokenContent.addEventListener('mouseleave', () => clearTimeout(pressTimer));
-                tokenContent.addEventListener('contextmenu', (e) => { e.preventDefault(); clearTimeout(pressTimer); });
             }
 
             const label = document.createElement('div');
-            label.className = 'bg-black bg-opacity-70 text-white text-[9px] px-2 py-0.5 rounded-full whitespace-nowrap pointer-events-none font-semibold shadow-sm tracking-wide mt-1';
+            label.className = 'bg-black bg-opacity-70 text-white px-2 py-0.5 rounded-full whitespace-nowrap pointer-events-none font-semibold shadow-sm tracking-wide mt-1';
+            label.style.fontSize = '9px';
             label.innerText = device.name;
 
             if (isEditMode) {
@@ -353,9 +347,7 @@ function renderPlan() {
                 tokenContent.classList.add('cursor-grab');
                 tokenContent.ondragstart = (e) => {
                     const rect = tokenContent.getBoundingClientRect();
-                    const offsetX = e.clientX - rect.left;
-                    const offsetY = e.clientY - rect.top;
-                    e.dataTransfer.setData('text/plain', JSON.stringify({id: device.id, ox: offsetX, oy: offsetY}));
+                    e.dataTransfer.setData('text/plain', JSON.stringify({id: device.id, ox: e.clientX - rect.left, oy: e.clientY - rect.top}));
                 };
                 tokenContent.ondblclick = () => { 
                     delete serverConfig.positions[device.id]; 
@@ -370,7 +362,7 @@ function renderPlan() {
             
         } else if (isEditMode) {
             const listItem = document.createElement('div');
-            listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab hover:bg-gray-50 flex items-center text-xs font-bold text-gray-700 transition-colors";
+            listItem.className = "p-3 mb-2 bg-white border border-gray-200 rounded-lg shadow-sm cursor-grab flex items-center text-xs font-bold text-gray-700";
             listItem.draggable = true;
             listItem.ondragstart = (e) => e.dataTransfer.setData('text/plain', device.id);
             listItem.innerHTML = `<i class="fas fa-grip-vertical text-gray-300 mr-3"></i> ${device.name}`;
@@ -381,7 +373,6 @@ function renderPlan() {
     if (isEditMode && sidebarList.innerHTML === '') sidebarList.innerHTML = '<p class="text-xs text-gray-400 text-center py-4 italic">Tous placés !</p>';
 }
 
-// --- CREATION CARTE ---
 function createDeviceCard(device) {
     const card = document.createElement('div');
     card.className = 'device-card bg-white rounded-xl p-5 shadow border-t-4 border-purple-500 w-full';
@@ -396,7 +387,7 @@ function createDeviceCard(device) {
         icon = 'fa-lightbulb'; iconColor = (state.switch_1 || state.switch_led) ? 'text-yellow-400' : 'text-gray-400';
     } else { iconColor = state.switch_1 ? 'text-green-500' : 'text-gray-400'; }
 
-    let html = `<div class="flex items-start justify-between mb-4"><div class="flex-1"><div class="flex items-center mb-1"><i class="fas ${icon} text-2xl ${iconColor} mr-3"></i><h3 class="font-bold text-gray-800 leading-tight text-base">${device.name}</h3></div><p class="text-[10px] text-gray-400 ml-9 uppercase tracking-wider">${device.product_name || 'Tuya Device'}</p></div><div class="h-2 w-2 rounded-full ${device.online ? 'bg-green-500' : 'bg-red-500'} mt-1"></div></div><div class="space-y-3">`;
+    let html = `<div class="flex items-start justify-between mb-4"><div class="flex-1"><div class="flex items-center mb-1"><i class="fas ${icon} text-2xl ${iconColor} mr-3"></i><h3 class="font-bold text-gray-800 leading-tight text-base">${device.name}</h3></div><p class="text-gray-400 uppercase tracking-wider" style="font-size: 10px; margin-left: 36px;">${device.product_name || 'Tuya Device'}</p></div><div class="h-2 w-2 rounded-full ${device.online ? 'bg-green-500' : 'bg-red-500'} mt-1"></div></div><div class="space-y-3">`;
 
     ['switch_1', 'switch_2', 'switch_led'].forEach(code => {
         if (code in state) {
@@ -407,14 +398,13 @@ function createDeviceCard(device) {
     });
 
     if ('va_temperature' in state) html += `<div class="grid grid-cols-2 gap-2"><div class="bg-orange-50 text-orange-700 p-2 rounded text-center"><div class="text-xs">Temp</div><div class="font-bold">${(state.va_temperature/10).toFixed(1)}°C</div></div><div class="bg-blue-50 text-blue-700 p-2 rounded text-center"><div class="text-xs">Hum</div><div class="font-bold">${state.humidity_value}%</div></div></div>`;
-    if ('cur_power' in state) html += `<div class="flex justify-between items-center bg-gray-900 text-white p-2 rounded-lg text-xs font-mono"><span class="text-yellow-400 font-bold">${(state.cur_power/10).toFixed(1)} W</span><span>${(state.cur_voltage/10).toFixed(0)}V</span></div>`;
-    if ('countdown_1' in state) html += `<div class="mt-2 pt-2 border-t border-gray-100"><div class="flex gap-1"><select id="timer-${device.id}" class="flex-1 bg-gray-100 text-[10px] rounded p-1 border-none"><option value="0">Désactiver</option><option value="900" ${state.countdown_1 === 900 ? 'selected' : ''}>15m</option><option value="1800" ${state.countdown_1 === 1800 ? 'selected' : ''}>30m</option><option value="3600" ${state.countdown_1 === 3600 ? 'selected' : ''}>1h</option></select><button onclick="setCountdown('${device.id}')" class="bg-purple-600 text-white px-2 py-1 rounded text-[10px] font-bold">OK</button></div>${state.countdown_1 > 0 ? `<p class="text-[9px] text-green-600 mt-1 font-bold"><i class="fas fa-clock mr-1"></i> Fin dans ~${Math.round(state.countdown_1/60)} min</p>` : ''}</div>`;
+    if ('cur_power' in state) html += `<div class="flex justify-between items-center bg-gray-900 text-white p-2 rounded-lg font-mono" style="font-size: 12px;"><span class="text-yellow-400 font-bold">${(state.cur_power/10).toFixed(1)} W</span><span>${(state.cur_voltage/10).toFixed(0)}V</span></div>`;
+    if ('countdown_1' in state) html += `<div class="mt-2 pt-2 border-t border-gray-100"><div class="flex gap-1"><select id="timer-${device.id}" class="flex-1 bg-gray-100 rounded p-1 border-none" style="font-size: 10px;"><option value="0">Désactiver</option><option value="900" ${state.countdown_1 === 900 ? 'selected' : ''}>15m</option><option value="1800" ${state.countdown_1 === 1800 ? 'selected' : ''}>30m</option><option value="3600" ${state.countdown_1 === 3600 ? 'selected' : ''}>1h</option></select><button onclick="setCountdown('${device.id}')" class="bg-purple-600 text-white px-2 py-1 rounded font-bold" style="font-size: 10px;">OK</button></div>${state.countdown_1 > 0 ? `<p class="text-green-600 mt-1 font-bold" style="font-size: 9px;"><i class="fas fa-clock mr-1"></i> Fin dans ~${Math.round(state.countdown_1/60)} min</p>` : ''}</div>`;
     html += `</div>`;
     card.innerHTML = html;
     return card;
 }
 
-// --- SHABBAT & TACHES ---
 async function loadShabbatTimes() {
     try {
         const response = await apiFetch('/shabbat-times');
@@ -424,10 +414,7 @@ async function loadShabbatTimes() {
             const hd = new Date(data.havdalah.date);
             const shabbatDiv = document.getElementById('shabbat-times');
             if (shabbatDiv) {
-                shabbatDiv.innerHTML = `
-                    <div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3><i class="fas fa-candle-holder mr-2"></i>Bougies</h3><p class="text-2xl font-bold">${cd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
-                    <div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3><i class="fas fa-star mr-2"></i>Havdalah</h3><p class="text-2xl font-bold">${hd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>
-                `;
+                shabbatDiv.innerHTML = `<div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3><i class="fas fa-candle-holder mr-2"></i>Bougies</h3><p class="text-2xl font-bold">${cd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div><div class="bg-white bg-opacity-10 p-4 rounded-lg"><h3><i class="fas fa-star mr-2"></i>Havdalah</h3><p class="text-2xl font-bold">${hd.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</p></div>`;
             }
             const taskTime = document.getElementById('task-time');
             if (taskTime) taskTime.value = new Date(cd.getTime() - 7200000).toISOString().slice(0,16);
@@ -457,10 +444,7 @@ async function loadScheduledTasks() {
         c.innerHTML = data.tasks.length ? '' : '<p class="text-gray-500 text-center py-4">Aucune tâche programmée.</p>';
         data.tasks.forEach(t => {
             const isPast = new Date(t.executeAt) < new Date();
-            c.innerHTML += `<div class="bg-gray-50 p-3 rounded flex justify-between items-center mb-2 border-l-4 ${isPast?'border-gray-400':'border-purple-500'}">
-                <div class="text-sm"><h4 class="font-bold">${t.name}</h4><p class="text-[10px] text-gray-500">${t.deviceName} - ${t.action} à ${new Date(t.executeAt).toLocaleString('fr-FR')}</p></div>
-                <button onclick="deleteTask('${t.id}')" class="text-red-400 hover:text-red-600 transition-colors"><i class="fas fa-trash"></i></button>
-            </div>`;
+            c.innerHTML += `<div class="bg-gray-50 p-3 rounded flex justify-between items-center mb-2 border-l-4 ${isPast?'border-gray-400':'border-purple-500'}"><div class="text-sm"><h4 class="font-bold">${t.name}</h4><p class="text-gray-500" style="font-size: 10px;">${t.deviceName} - ${t.action} à ${new Date(t.executeAt).toLocaleString('fr-FR')}</p></div><button onclick="deleteTask('${t.id}')" class="text-red-400 hover:text-red-600 transition-colors"><i class="fas fa-trash"></i></button></div>`;
         });
     } catch(e) {}
 }
@@ -471,7 +455,6 @@ async function deleteTask(id) {
     loadScheduledTasks();
 }
 
-// --- INITIALISATION "ANTI-BABEL CRASH" ---
 function initApp() {
     initPlanLogic();
     const loginForm = document.getElementById('login-form');
@@ -489,37 +472,22 @@ function initApp() {
             checkAuth();
         });
     }
-
     const taskForm = document.getElementById('task-form');
     if (taskForm) {
         taskForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const devValue = document.getElementById('task-device').value;
             if (!devValue) return alert("Veuillez choisir un appareil.");
-            
             const dev = JSON.parse(devValue);
             const action = document.getElementById('task-action').value;
             try {
-                await apiFetch('/scheduled-tasks', {
-                    method: 'POST', body: JSON.stringify({
-                        name: document.getElementById('task-name').value,
-                        deviceId: dev.id, deviceName: dev.name, action,
-                        executeAt: new Date(document.getElementById('task-time').value).toISOString(),
-                        commands: [{code: 'switch_1', value: action === 'ON'}]
-                    })
-                });
+                await apiFetch('/scheduled-tasks', { method: 'POST', body: JSON.stringify({ name: document.getElementById('task-name').value, deviceId: dev.id, deviceName: dev.name, action, executeAt: new Date(document.getElementById('task-time').value).toISOString(), commands: [{code: 'switch_1', value: action === 'ON'}] }) });
                 loadScheduledTasks();
                 alert("Tâche programmée avec succès !");
             } catch(e) { alert("Erreur lors de la programmation."); }
         });
     }
-
     checkAuth();
 }
 
-// Babel lance le script une fois la page déjà chargée.
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-} else {
-    initApp();
-}
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initApp); } else { initApp(); }
