@@ -17,6 +17,10 @@
         .tab-active { background: white; color: #667eea; }
         .tab-inactive { background: rgba(255, 255, 255, 0.2); color: white; }
         .select-none { -webkit-user-select: none; user-select: none; }
+        
+        /* Astuce pour masquer la barre de défilement tout en gardant le scroll */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -80,13 +84,28 @@
                         <div id="unplaced-devices" class="space-y-2 overflow-y-auto pr-2" style="max-height: 500px;"></div>
                     </div>
                     
-                    <div id="plan-container" class="flex-1 relative bg-gray-100 rounded-xl border border-gray-200 overflow-auto flex items-center justify-center" style="min-height: 500px;">
-                        <div id="plan-placeholder" class="text-center text-gray-400 pointer-events-none">
-                            <i class="fas fa-image text-5xl mb-3 block opacity-50"></i>
-                            <p>Importez l'image de votre plan pour commencer</p>
+                    <div id="plan-container" class="flex-1 relative bg-gray-900 rounded-xl overflow-hidden" style="min-height: 550px;">
+                        
+                        <div class="absolute top-4 right-4 flex gap-2" style="z-index: 30;">
+                            <button onclick="toggleFitMode()" id="fit-btn" class="bg-white bg-opacity-90 text-gray-800 p-3 rounded-full shadow-lg hover:bg-gray-100 transition-all hidden" title="Ajuster/Zoomer">
+                                <i id="fit-btn-icon" class="fas fa-search-plus"></i>
+                            </button>
+                            <button id="fullscreen-btn" class="bg-white bg-opacity-90 text-gray-800 p-3 rounded-full shadow-lg hover:bg-gray-100 transition-all" title="Plein Écran">
+                                <i class="fas fa-expand"></i>
+                            </button>
                         </div>
-                        <img id="plan-image" src="" class="w-full h-auto hidden select-none" alt="Plan">
-                        <div id="plan-dropzone" class="absolute inset-0"></div>
+
+                        <div id="plan-scroll-area" class="absolute inset-0 overflow-auto hide-scrollbar flex items-center justify-center p-4">
+                            <div id="plan-placeholder" class="text-center text-gray-400 pointer-events-none">
+                                <i class="fas fa-image text-5xl mb-3 block opacity-50"></i>
+                                <p>Importez l'image de votre plan pour commencer</p>
+                            </div>
+                            
+                            <div id="plan-wrapper" class="relative hidden transition-all duration-300">
+                                <img id="plan-image" src="" class="block select-none shadow-2xl rounded-lg" style="max-width: 100%; max-height: 100%;" alt="Plan">
+                                <div id="plan-dropzone" class="absolute top-0 left-0 w-full h-full"></div>
+                            </div>
+                        </div>
                         
                         <div id="device-modal" class="absolute inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center hidden" style="z-index: 60;" onclick="closeDeviceModal()">
                             <div class="relative w-full max-w-sm m-4" onclick="event.stopPropagation()">
